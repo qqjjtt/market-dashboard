@@ -467,13 +467,20 @@ def test_fx_drops_stub_bar_and_warns_when_latest(caplog):
     assert any("不完整" in r.getMessage() and "UKOIL" in r.getMessage() for r in caplog.records)
 
 
-def test_fx_drops_old_stub_silently(caplog):
-    df = _fx_frame([380000, 4, 400000, 390000])  # 中间一根（如周末）残缺，最新一根正常
+def test_fx_keeps_interior_low_tick_bars(caplog):
+    df = _fx_frame([380000, 4, 400000, 390000])  # 中间一根（如周末空桩）不动，只看最新一根
     src, _ = make(FakePro(fx_daily=df))
     with caplog.at_level(logging.WARNING, logger="sources"):
         out = src.fx("UKOIL", "20261101", "20261105")
-    assert list(out.trade_date) == ["20261101", "20261103", "20261104"]
+    assert list(out.trade_date) == ["20261101", "20261102", "20261103", "20261104"]
     assert not caplog.records
+
+
+def test_fx_tick_regime_change_is_not_mistaken_for_stub():
+    # 真实数据：USDOLLAR 的 tick_qty 在 10/30 前后由 ~10 万降到 ~1 万，最新几根都是完整日线
+    df = _fx_frame([99434, 112230, 1, 8344, 7974, 12194, 9872])
+    src, _ = make(FakePro(fx_daily=df))
+    assert len(src.fx("USDOLLAR", "20261101", "20261107")) == 7
 
 
 def test_fx_without_tick_qty_keeps_all_rows():

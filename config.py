@@ -83,4 +83,4 @@ MAX_CALLS_PER_MIN = 200
 DISCLOSURE_MIN = 0.8
 SPARK_DAYS = 30
 API_MIN_INTERVAL = {"stk_mins": 61}  # 单接口两次调用的最小间隔（秒）；stk_mins 账号限额 1 次/分钟
-FX_MIN_TICK_RATIO = 0.25  # fx_daily 某日 tick_qty 低于窗口中位数的该比例 → 视为未收完的残缺日线并丢弃
+FX_MIN_TICK_RATIO = 0.25  # fx_daily 最新一根 tick_qty 低于其前 3 根中位数的该比例 → 视为未收完的残缺日线并丢弃

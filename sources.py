@@ -289,8 +289,9 @@ class TushareSource:
     def fx(self, code, start, end):
         """外汇/商品（UKOIL、USDOLLAR、FED30D）。close = bid_close。
         tushare 的最新一根常是刚开盘、尚未收完的残缺日线（实测 UKOIL 20261105 仅 3 笔 tick，
-        开高低收几乎相同）。tick_qty 低于窗口中位数 config.FX_MIN_TICK_RATIO 倍的日线一律丢弃；
-        被丢弃的恰是最新一根时记 WARNING，更早的（如周末空桩）静默丢弃。"""
+        开高低收几乎相同）。最新一根的 tick_qty 低于其前 3 根中位数的 config.FX_MIN_TICK_RATIO 倍时丢弃并记
+        WARNING，取前一根。只看最新一根、只和紧邻的前几根比：USDOLLAR 的 tick_qty 在 10/30 前后整体
+        降了一个数量级，拿整个窗口的中位数比会把正常日线误判成残缺。"""
         cols = ["trade_date", "close"]
         df = self.call("fx_daily", ts_code=code, start_date=start, end_date=end)
         if df.empty:
@@ -302,14 +303,13 @@ class TushareSource:
         df = df.copy()
         df["trade_date"] = df["trade_date"].astype(str)
         df = df.sort_values("trade_date", kind="stable")
-        if "tick_qty" in df.columns:
+        if "tick_qty" in df.columns and len(df) >= 2:
             tq = pd.to_numeric(df["tick_qty"], errors="coerce")
-            stub = (tq < tq.median() * config.FX_MIN_TICK_RATIO).to_numpy()
-            if stub.any():
-                if stub[-1]:
-                    log.warning("fx_daily %s 最新日线 %s 不完整（尚未收完，tick_qty=%s，窗口中位数 %.0f），已丢弃，取前一根",
-                                code, df["trade_date"].iloc[-1], int(tq.iloc[-1]), tq.median())
-                df = df[~stub]
+            ref = tq.iloc[-4:-1].median()
+            if pd.notna(tq.iloc[-1]) and pd.notna(ref) and tq.iloc[-1] < ref * config.FX_MIN_TICK_RATIO:
+                log.warning("fx_daily %s 最新日线 %s 不完整（尚未收完，tick_qty=%s，前几根中位数 %.0f），已丢弃，取前一根",
+                            code, df["trade_date"].iloc[-1], int(tq.iloc[-1]), ref)
+                df = df.iloc[:-1]
         return df[cols].reset_index(drop=True)
 
     def global_index(self, start, end):
