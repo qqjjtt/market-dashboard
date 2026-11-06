@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A 股盘后看板</title>
+<style>
+  body { margin: 0; background: #f6f1ea; color: #333; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  #demo-banner { display: none; background: #c8402f; color: #fff; text-align: center; padding: 8px; font-weight: 600; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+</style>
+</head>
+<body>
+<div id="demo-banner">当前为随机模拟数据</div>
+<main>
+  <h1>A 股盘后看板</h1>
+  <p id="meta"></p>
+  <!-- TODO(Task 9-10): 真实页面 -->
+</main>
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  if (!DATA) return;
+  if (DATA.meta && DATA.meta.demo) document.getElementById("demo-banner").style.display = "block";
+  var m = DATA.meta || {};
+  document.getElementById("meta").textContent = "交易日 " + (m.trade_date || "—") + " · 生成 " + (m.generated_at || "—");
+})();
+</script>
+</body>
+</html>

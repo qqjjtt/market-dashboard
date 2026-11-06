@@ -11,7 +11,7 @@ def _ok(x) -> bool:
     return x is not None and not (isinstance(x, float) and not math.isfinite(x))
 
 
-def _signed(x: float, nd: int = 1) -> str:
+def signed(x: float, nd: int = 1) -> str:
     """带符号数：+45.0 / −5.0（负号用 −）。"""
     s = f"{abs(x):.{nd}f}"
     if float(s) == 0:
@@ -88,14 +88,14 @@ def _team_card(team_last3: list[float], team_asof: str | None, round_total: floa
     total = sum(vals)
     n = len(vals)
     if label == "仍在":
-        text = f"仍在（近 {n} 日 {_signed(total)} 亿）"
+        text = f"仍在（近 {n} 日 {signed(total)} 亿）"
     elif label == "疑似撤出":
-        text = f"疑似撤出（{_signed(total)} 亿）"
+        text = f"疑似撤出（{signed(total)} 亿）"
     else:
-        text = f"放缓（近 {n} 日 {_signed(total)} 亿）"
+        text = f"放缓（近 {n} 日 {signed(total)} 亿）"
     sub = f"截至 {_md(team_asof)}"
     if _ok(round_total):
-        sub += f" · 本轮累计 {_signed(round_total)} 亿"
+        sub += f" · 本轮累计 {signed(round_total)} 亿"
     return _card("team", "国家队", text, sub, tone)
 
 
@@ -118,7 +118,7 @@ def _retail_card(temp_kpis: dict, market_conc: float | None, market_conc_yday: f
     if _ok(market_conc):
         conc = f"浓度 {market_conc:.1f}%"
         if _ok(market_conc_yday):
-            conc += f"（{_signed(market_conc - market_conc_yday)}pp）"
+            conc += f"（{signed(market_conc - market_conc_yday)}pp）"
     else:
         conc = "浓度 —"
     tone = "red" if today >= 60 else "orange" if today >= 40 else "blue"
