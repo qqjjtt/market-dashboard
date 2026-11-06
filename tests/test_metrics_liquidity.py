@@ -196,7 +196,7 @@ def test_rate_expectation():
 def test_rate_expectation_hike_and_fields():
     r = rate_expectation(3.88, 96.0)  # implied 4.00, +12bp
     assert r["label"] == "预期加息" and r["diff_bp"] == pytest.approx(12)
-    assert r["implied"] == pytest.approx(4.0) and r["dff"] == 3.88
+    assert r["implied"] == pytest.approx(4.0) and r["effective"] == 3.88
 
 
 def test_rate_expectation_band_boundary_and_custom_band():
@@ -295,9 +295,9 @@ def test_filter_news_dedup_sort_and_shape():
     assert titles.count("央行：今日开展 5000 亿逆回购") == 1
     kept = [n for n in d["domestic"] if n["title"].startswith("央行：今日")][0]
     assert kept["url"] == "http://a/1"  # 保留较新的一条
-    times = [n["pub_time"] for n in d["domestic"]]
+    times = [n["time"] for n in d["domestic"]]
     assert times == sorted(times, reverse=True)
-    assert set(d["domestic"][0]) == {"pub_time", "src", "title", "url", "flag"}
+    assert set(d["domestic"][0]) == {"time", "src", "title", "url", "flag"}
     assert not any("天气" in n["title"] for n in d["domestic"] + d["external"])
 
 
@@ -358,10 +358,10 @@ def test_load_policy_ops_rows(tmp_path):
         "2026-10-27,回购增持再贷款,,,http://x/2,\n",
         encoding="utf-8")
     rows = load_policy_ops(str(p))
-    assert rows[0] == {"date": "2026-10-20", "tool": "证券基金保险公司互换便利", "amount_yi": 500.0,
-                       "cum_yi": 1000.5, "url": "http://x/1", "note": "首批"}
-    assert rows[1]["amount_yi"] is None and rows[1]["cum_yi"] is None and rows[1]["note"] is None
-    assert type(rows[0]["amount_yi"]) is float
+    assert rows[0] == {"date": "2026-10-20", "tool": "证券基金保险公司互换便利", "amount": 500.0,
+                       "cum": 1000.5, "url": "http://x/1", "note": "首批"}
+    assert rows[1]["amount"] is None and rows[1]["cum"] is None and rows[1]["note"] is None
+    assert type(rows[0]["amount"]) is float
 
 
 def test_load_policy_ops_bom_and_blank_lines(tmp_path):
@@ -371,8 +371,34 @@ def test_load_policy_ops_bom_and_blank_lines(tmp_path):
     assert len(rows) == 1 and rows[0]["date"] == "2026-10-20"
 
 
-def test_load_policy_ops_bad_number_raises(tmp_path):
+def test_load_policy_ops_bad_number_becomes_none_with_warning(tmp_path, caplog):
     p = tmp_path / "p.csv"
-    p.write_text("date,tool,amount_yi,cum_yi,url,note\n2026-10-20,T,12亿,,u,n\n", encoding="utf-8")
-    with pytest.raises(ValueError):
-        load_policy_ops(str(p))
+    p.write_text("date,tool,amount_yi,cum_yi,url,note\n"
+                 "2026-10-20,T,12亿,nan,u,n\n2026-10-21,T2,3,4,u,n\n", encoding="utf-8")
+    with caplog.at_level("WARNING"):
+        rows = load_policy_ops(str(p))
+    assert len(rows) == 2
+    assert rows[0]["amount"] is None and rows[0]["cum"] is None and rows[0]["tool"] == "T"
+    assert rows[1]["amount"] == 3.0 and rows[1]["cum"] == 4.0
+    msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(msgs) == 2 and all("p.csv:2" in m for m in msgs)
+
+
+def test_load_policy_ops_missing_file_returns_empty_with_warning(tmp_path, caplog):
+    with caplog.at_level("WARNING"):
+        assert load_policy_ops(str(tmp_path / "nope.csv")) == []
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_filter_news_drops_null_or_empty_pub_time():
+    rows = [
+        (None, "x", "央行有消息A", "u"),
+        (float("nan"), "x", "央行有消息B", "u"),
+        ("", "x", "央行有消息C", "u"),
+        ("  ", "x", "央行有消息D", "u"),
+        ("2026-11-05 10:00:00", "x", "央行有消息E", "u"),
+    ]
+    df = pd.DataFrame(rows, columns=["pub_time", "src", "title", "url"])
+    d = filter_news(df, KD, KE)
+    assert [n["title"] for n in d["domestic"]] == ["央行有消息E"]
+    assert all(n["time"] not in ("nan", "None", "") for n in d["domestic"] + d["external"])

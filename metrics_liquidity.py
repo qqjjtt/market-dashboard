@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import math
 import re
 
@@ -14,6 +15,8 @@ import numpy as np
 import pandas as pd
 
 import config
+
+log = logging.getLogger(__name__)
 
 _FLAG_TOOLS = ("互换便利", "再贷款")
 _AMOUNT_RE = re.compile(r"\d+(\.\d+)?\s*(亿|万亿)")
@@ -142,7 +145,7 @@ def rate_expectation(dff, fed30d, band_bp: float = config.RATE_BAND_BP) -> dict:
     """联邦基金期货隐含利率 (100 − FED30D) 与有效利率 DFF 的差（bp）→ 降息 / 加息 / 按兵不动。"""
     d, f = _num(dff), _num(fed30d)
     if d is None or f is None:
-        return {"dff": d, "implied": None, "diff_bp": None, "label": "无数据"}
+        return {"effective": d, "implied": None, "diff_bp": None, "label": "无数据"}
     implied = 100.0 - f
     diff_bp = (implied - d) * 100.0
     if diff_bp < -band_bp:
@@ -151,7 +154,7 @@ def rate_expectation(dff, fed30d, band_bp: float = config.RATE_BAND_BP) -> dict:
         label = "预期加息"
     else:
         label = "预期按兵不动"
-    return {"dff": d, "implied": implied, "diff_bp": diff_bp, "label": label}
+    return {"effective": d, "implied": implied, "diff_bp": diff_bp, "label": label}
 
 
 # ---------- 板块资金流向 ----------
@@ -200,7 +203,7 @@ def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]
     - 两组都命中 → domestic。但「外围词包含国内词」的情形（如「英国央行」含「央行」）先把该外围词从
       标题里抹掉再判国内，使「英国央行加息」归外围而「央行与美联储」仍归国内。
     - 按 pub_time 倒序；同标题去重（保留较新）；关键词大小写不敏感。
-    - 每条 {pub_time, src, title, url, flag}；url 空 → None；标题原样透传（不 eval / format）。
+    - 每条 {time, src, title, url, flag}；url 空 → None；标题原样透传（不 eval / format）。
     - flag：标题含(互换便利|再贷款)且含「数字+亿/万亿」→ 疑似新操作。
     """
     out = {"domestic": [], "external": []}
@@ -214,7 +217,9 @@ def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]
     is_dom, is_ext = _matcher(kw_domestic), _matcher(kw_external)
 
     d = df.copy()
-    d["pub_time"] = d["pub_time"].astype(str)
+    d = d[d["pub_time"].map(lambda v: isinstance(v, str) and v.strip() != "")]
+    if d.empty:
+        return out
     d = d.sort_values("pub_time", ascending=False, kind="stable")
     seen = set()
     for r in d.itertuples(index=False):
@@ -234,7 +239,7 @@ def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]
             continue
         url, src = getattr(r, "url", None), getattr(r, "src", None)
         out[group].append({
-            "pub_time": r.pub_time,
+            "time": r.pub_time,
             "src": src if isinstance(src, str) else "",
             "title": title,
             "url": url if isinstance(url, str) and url.strip() else None,
@@ -249,24 +254,36 @@ _POLICY_COLS = ["date", "tool", "amount_yi", "cum_yi", "url", "note"]
 
 
 def load_policy_ops(path: str) -> list[dict]:
-    """读手工维护的 policy_ops.csv（列 date,tool,amount_yi,cum_yi,url,note）。
+    """读手工维护的 policy_ops.csv（CSV 列 date,tool,amount_yi,cum_yi,url,note）。
 
-    空值 → None；amount_yi / cum_yi 转 float（非数字抛 ValueError，避免手工笔误被悄悄吞掉）；
-    整行为空跳过；只有表头 → []。文件不存在则抛 FileNotFoundError。
+    输出行 {date, tool, amount, cum, url, note}：amount / cum 来自 amount_yi / cum_yi（亿元，float）。
+    空值 → None；整行为空跳过；只有表头 → []。
+    不抛异常（页面不能因一处坏输入崩）：文件缺失 → [] 并 WARNING；
+    某个数字非数字 / 非有限 → 该字段 None 并 WARNING（含文件与行号），整行保留。
     """
     rows = []
-    with open(path, newline="", encoding="utf-8-sig") as fh:
+    try:
+        fh = open(path, newline="", encoding="utf-8-sig")
+    except OSError as e:
+        log.warning("policy_ops 读取失败 %s: %s", path, e)
+        return []
+    with fh:
         for lineno, raw in enumerate(csv.DictReader(fh), start=2):
             vals = {c: (raw.get(c) or "").strip() or None for c in _POLICY_COLS}
             if all(v is None for v in vals.values()):
                 continue
-            for c in ("amount_yi", "cum_yi"):
-                if vals[c] is not None:
+            nums = {}
+            for src_col, out_col in (("amount_yi", "amount"), ("cum_yi", "cum")):
+                v = vals[src_col]
+                if v is not None:
                     try:
-                        vals[c] = float(vals[c])
-                        if not math.isfinite(vals[c]):
+                        v = float(v)
+                        if not math.isfinite(v):
                             raise ValueError
                     except ValueError:
-                        raise ValueError(f"{path}:{lineno} 列 {c} 不是数字: {vals[c]!r}") from None
-            rows.append(vals)
+                        log.warning("policy_ops %s:%d 列 %s 不是有效数字: %r，置为空", path, lineno, src_col, v)
+                        v = None
+                nums[out_col] = v
+            rows.append({"date": vals["date"], "tool": vals["tool"], "amount": nums["amount"],
+                         "cum": nums["cum"], "url": vals["url"], "note": vals["note"]})
     return rows
