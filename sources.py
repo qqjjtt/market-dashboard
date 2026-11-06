@@ -31,6 +31,10 @@ class SourceError(Exception):
     """接口调用重试后仍失败，或配置缺失。"""
 
 
+class AuthError(SourceError):
+    """token 无效 / 缺失（接口提示含 token）：重试没有意义，立即失败。"""
+
+
 class RateLimited(SourceError):
     """频率超限且该接口不做重试（见 config.API_MIN_INTERVAL）。"""
 
@@ -49,6 +53,7 @@ class TushareSource:
         self._clock = clock
         self._max_calls = max_calls_per_min
         self._times = deque()  # 最近 60 秒内的调用时刻
+        self._news_cov = {"status": "failed", "since": None}  # 尚未调用过 major_news
 
     @classmethod
     def from_env(cls):
@@ -84,7 +89,7 @@ class TushareSource:
     def call(self, api, **kw):
         """节流 + 重试。权限错误立即抛 PermissionDenied；其余异常（含频率超限）
         等 2/4/8 秒重试，共 4 次，仍失败抛 SourceError。
-        例外：config.API_MIN_INTERVAL 中的接口（stk_mins），以及提示为「次/天」「次/小时」配额的频率超限，
+        例外：消息含 "token" 的错误（token 不对）立即抛 AuthError（SourceError 子类），不重试；config.API_MIN_INTERVAL 中的接口（stk_mins），以及提示为「次/天」「次/小时」配额的频率超限，
         不重试，直接抛 RateLimited。"""
         last = None
         for attempt in range(len(_RETRY_WAITS) + 1):
@@ -95,6 +100,10 @@ class TushareSource:
                 return pd.DataFrame() if df is None else df
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
+                if "token" in msg.lower():
+                    # 「token不对」等：重试无意义，立即失败（不记录消息，避免泄露 token）
+                    log.error("%s 调用失败：token 无效或缺失（%s），不重试", api, type(e).__name__)
+                    raise AuthError(f"{api}: token 无效或缺失") from e
                 # 频率超限的提示里也带「权限」二字，必须先排除
                 if "频率超限" not in msg and ("没有接口" in msg or "权限" in msg):
                     log.warning("接口无权限: %s", api)
@@ -330,6 +339,7 @@ class TushareSource:
         cols = ["pub_time", "src", "title", "url"]
         max_calls = config.NEWS_MAX_CALLS if max_calls is None else max_calls
         s, e = datetime.strptime(start_dt, _NEWS_FMT), datetime.strptime(end_dt, _NEWS_FMT)
+        self._news_cov = {"status": "failed", "since": None}
         frames, calls, cur, complete = [], 0, e, False
         while calls < max_calls:
             try:
@@ -338,11 +348,11 @@ class TushareSource:
             except RateLimited:
                 log.warning("major_news 接口配额用尽（账号 40 次/天、30 次/小时），新闻%s",
                             f"仅覆盖 {cur.strftime(_NEWS_FMT)} 之后" if frames else "留空")
-                return self._news_result(frames, cols)
-            except SourceError as e:  # 重试后仍失败：保留已取到的页，不让后面的页拖垮前面的
-                log.warning("major_news 取数失败（%s），新闻%s", type(e.__cause__ or e).__name__,
+                return self._news_result(frames, cols, cur)
+            except SourceError as err:  # 重试后仍失败：保留已取到的页，不让后面的页拖垮前面的
+                log.warning("major_news 取数失败（%s），新闻%s", type(err.__cause__ or err).__name__,
                             f"仅覆盖 {cur.strftime(_NEWS_FMT)} 之后" if frames else "留空")
-                return self._news_result(frames, cols)
+                return self._news_result(frames, cols, cur)
             calls += 1
             if df.empty:
                 complete = True
@@ -362,10 +372,21 @@ class TushareSource:
                 break
         if not complete:
             log.warning("major_news 已用满本次 %d 次调用预算，新闻仅覆盖 %s 之后", max_calls, cur.strftime(_NEWS_FMT))
+            return self._news_result(frames, cols, cur)
+        self._news_cov = {"status": "ok", "since": None}
         return self._news_result(frames, cols)
 
-    @staticmethod
-    def _news_result(frames, cols):
+    def last_news_coverage(self):
+        """最近一次 major_news 的覆盖情况：{status: "ok"|"partial"|"failed", since: "YYYY-MM-DD HH:MM:SS"|None}。
+        ok = 窗口取完（含确无新闻）；partial = 只取到 since 之后的部分（配额 / 预算 / 某页失败）；
+        failed = 一条都没取到（配额或错误）。"""
+        return dict(self._news_cov)
+
+    def _news_result(self, frames, cols, since=None):
+        """since 非 None 表示窗口没取完：有数据 → partial，无数据 → failed。"""
+        if since is not None:
+            self._news_cov = ({"status": "partial", "since": since.strftime(_NEWS_FMT)} if frames
+                              else {"status": "failed", "since": None})
         if not frames:
             return _empty(cols)
         out = pd.concat(frames, ignore_index=True).drop_duplicates("title")

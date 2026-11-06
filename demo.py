@@ -24,9 +24,9 @@ _FLOW_INDUSTRIES = ["半导体", "银行", "证券", "软件开发", "白酒", "
 _FX_BASE = {"UKOIL": (80.0, 0.018), "USDOLLAR": (100.0, 0.004), "FED30D": (96.1, 0.0003)}
 _GLOBAL_BASE = {"SPX": 5800.0, "IXIC": 18500.0, "DJI": 42000.0, "HSI": 23000.0}
 _NEWS_HITS = [  # (距 end_dt 的小时数, 来源, 标题)：命中 NEWS_KW_*
-    (2, "财联社", "华福证券中标央行第三批互换便利操作12亿元"),
-    (26, "新华社", "英国央行三年多来首度加息"),
-    (50, "路透", "美联储隔夜逆回购使用规模下降"),
+    (2, "演示快讯", "华福证券中标央行第三批互换便利操作12亿元"),
+    (26, "演示快讯", "英国央行三年多来首度加息"),
+    (50, "演示快讯", "美联储隔夜逆回购使用规模下降"),
 ]
 _NEWS_FILLER = ["两市成交额小幅回升", "多家上市公司披露三季报", "新能源车10月销量数据公布",
                 "多地发布文旅促销政策", "科创板新股申购开启", "机构调研热度上升"]
@@ -261,6 +261,9 @@ class DemoSource:
         df["url"] = [f"https://example.com/demo-news/{i}" for i in range(len(df))]
         df = df.drop_duplicates("title").sort_values("pub_time", kind="stable").reset_index(drop=True)
         return df[["pub_time", "src", "title", "url"]]
+
+    def last_news_coverage(self):
+        return {"status": "ok", "since": None}
 
 
 class DemoFred:

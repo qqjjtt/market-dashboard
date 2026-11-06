@@ -6,7 +6,7 @@ import logging
 import pandas as pd
 import pytest
 
-from sources import PermissionDenied, SourceError, TushareSource
+from sources import AuthError, PermissionDenied, SourceError, TushareSource
 
 
 class FakePro:
@@ -82,6 +82,18 @@ def test_rate_limit_is_retried_not_permission():
     with pytest.raises(SourceError):
         src.call("us_daily")
     assert slept == [2, 4, 8]
+
+
+def test_token_error_is_fatal_no_retry(caplog):
+    """「token不对」重试没有意义：立即抛 AuthError（SourceError 子类），不等待、不泄露消息。"""
+    pro = FakePro(daily=Exception("您的token不对，请确认。SECRET123"))
+    src, slept = make(pro)
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        with pytest.raises(AuthError):
+            src.call("daily", trade_date="20261105")
+    assert slept == [] and len(pro.calls) == 1
+    assert issubclass(AuthError, SourceError)
+    assert all("SECRET123" not in r.getMessage() for r in caplog.records)
 
 
 def test_none_result_becomes_empty_df():
@@ -239,7 +251,7 @@ def test_other_api_rate_limit_still_retried():
 
 
 def test_retry_warning_logs_type_only(caplog):
-    secret = "token=SECRET123 boom"
+    secret = "key=SECRET123 boom"
     src, _ = make(FakePro(daily=Exception(secret)))
     with caplog.at_level(logging.WARNING, logger="sources"):
         with pytest.raises(SourceError):
@@ -435,6 +447,40 @@ def test_major_news_quota_error_before_any_data_returns_empty():
     src, slept = make(pro)
     df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
     assert df.empty and list(df.columns) == ["pub_time", "src", "title", "url"] and slept == []
+
+
+def test_news_coverage_ok_partial_failed():
+    pro, _ = _news_pro(_rows(300))
+    src, _ = make(pro)
+    assert src.last_news_coverage()["status"] == "failed"  # 尚未调用
+    src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert src.last_news_coverage() == {"status": "ok", "since": None}
+
+    # 预算用尽 → partial，since = 已覆盖的最早时刻
+    pro2, _ = _news_pro(_rows(2000))
+    src2, _ = make(pro2)
+    df = src2.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59", max_calls=1)
+    cov = src2.last_news_coverage()
+    assert cov["status"] == "partial" and cov["since"] == df["pub_time"].min()
+
+    # 第二页配额错误 → partial；第一页就配额错误 → failed（since 为 None）
+    inner, st = _news_pro(_rows(2000))
+
+    def quota_after_first(start_date, end_date, fields=None):
+        if st["calls"]:
+            raise Exception("抱歉，您访问接口(major_news)频率超限(30次/小时)")
+        return inner.apis["major_news"](start_date, end_date, fields)
+
+    src3, _ = make(FakePro(major_news=quota_after_first))
+    src3.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert src3.last_news_coverage()["status"] == "partial"
+    src4, _ = make(FakePro(major_news=Exception("抱歉，您访问接口(major_news)频率超限(40次/天)")))
+    src4.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert src4.last_news_coverage() == {"status": "failed", "since": None}
+    # 重试耗尽的普通错误且无数据 → failed
+    src5, _ = make(FakePro(major_news=Exception("timeout")))
+    src5.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert src5.last_news_coverage()["status"] == "failed"
 
 
 def test_major_news_empty():
