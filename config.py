@@ -72,6 +72,7 @@ VOTE = dict(turnover_hi=1.10, turnover_lo=0.90, margin_pct=0.5, shibor_bp=5, loo
 RATE_BAND_BP = 10
 
 NEWS_DAYS = 7
+NEWS_MAX_CALLS = 10  # 单次构建最多调用 major_news 次数；账号限额 40 次/天、30 次/小时，每天 3 次构建需留余量
 NEWS_KW_DOMESTIC = ["互换便利", "SFISF", "再贷款", "汇金", "平准", "央行", "人民银行", "证监会", "金融监管",
                     "降准", "降息", "LPR", "MLF", "逆回购", "国务院", "政治局", "财政部", "特别国债"]
 NEWS_KW_EXTERNAL = ["美联储", "鲍威尔", "FOMC", "议息", "加息", "降息", "非农", "CPI", "美债", "美元",
@@ -82,3 +83,4 @@ MAX_CALLS_PER_MIN = 200
 DISCLOSURE_MIN = 0.8
 SPARK_DAYS = 30
 API_MIN_INTERVAL = {"stk_mins": 61}  # 单接口两次调用的最小间隔（秒）；stk_mins 账号限额 1 次/分钟
+FX_MIN_TICK_RATIO = 0.25  # fx_daily 某日 tick_qty 低于窗口中位数的该比例 → 视为未收完的残缺日线并丢弃

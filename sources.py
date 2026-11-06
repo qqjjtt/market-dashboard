@@ -21,8 +21,6 @@ log = logging.getLogger(__name__)
 _RETRY_WAITS = (2, 4, 8)  # 共 4 次尝试，失败后依次等待
 _NEWS_FMT = "%Y-%m-%d %H:%M:%S"
 _NEWS_PAGE_LIMIT = 800  # major_news 单次最多 800 行
-_NEWS_MIN_WINDOW = timedelta(minutes=10)
-_NEWS_INIT_WINDOW = timedelta(hours=3)
 
 
 class PermissionDenied(Exception):
@@ -86,7 +84,8 @@ class TushareSource:
     def call(self, api, **kw):
         """节流 + 重试。权限错误立即抛 PermissionDenied；其余异常（含频率超限）
         等 2/4/8 秒重试，共 4 次，仍失败抛 SourceError。
-        例外：config.API_MIN_INTERVAL 中的接口（stk_mins）频率超限不重试，直接抛 RateLimited。"""
+        例外：config.API_MIN_INTERVAL 中的接口（stk_mins），以及提示为「次/天」「次/小时」配额的频率超限，
+        不重试，直接抛 RateLimited。"""
         last = None
         for attempt in range(len(_RETRY_WAITS) + 1):
             self._api_gap(api)
@@ -100,7 +99,8 @@ class TushareSource:
                 if "频率超限" not in msg and ("没有接口" in msg or "权限" in msg):
                     log.warning("接口无权限: %s", api)
                     raise PermissionDenied(f"{api}: 无访问权限") from e
-                if "频率超限" in msg and api in self._min_interval:
+                if "频率超限" in msg and (api in self._min_interval or "次/天" in msg or "次/小时" in msg):
+                    # 按小时 / 按天的配额，几秒后重试没有意义（major_news 40 次/天、30 次/小时）
                     log.warning("接口频率超限，不重试: %s", api)
                     raise RateLimited(f"{api}: 频率超限") from e
                 last = e
@@ -287,9 +287,30 @@ class TushareSource:
                            start_date=start, end_date=end)
 
     def fx(self, code, start, end):
-        """外汇/商品（UKOIL、USDOLLAR、FED30D）。close = bid_close。"""
-        return self._fetch("fx_daily", ["trade_date", "close"], rename={"bid_close": "close"},
-                           ts_code=code, start_date=start, end_date=end)
+        """外汇/商品（UKOIL、USDOLLAR、FED30D）。close = bid_close。
+        tushare 的最新一根常是刚开盘、尚未收完的残缺日线（实测 UKOIL 20261105 仅 3 笔 tick，
+        开高低收几乎相同）。tick_qty 低于窗口中位数 config.FX_MIN_TICK_RATIO 倍的日线一律丢弃；
+        被丢弃的恰是最新一根时记 WARNING，更早的（如周末空桩）静默丢弃。"""
+        cols = ["trade_date", "close"]
+        df = self.call("fx_daily", ts_code=code, start_date=start, end_date=end)
+        if df.empty:
+            return _empty(cols)
+        df = df.rename(columns={"bid_close": "close"})
+        if not all(c in df.columns for c in cols):
+            log.warning("fx_daily 返回缺少预期列 %s，按空数据处理", [c for c in cols if c not in df.columns])
+            return _empty(cols)
+        df = df.copy()
+        df["trade_date"] = df["trade_date"].astype(str)
+        df = df.sort_values("trade_date", kind="stable")
+        if "tick_qty" in df.columns:
+            tq = pd.to_numeric(df["tick_qty"], errors="coerce")
+            stub = (tq < tq.median() * config.FX_MIN_TICK_RATIO).to_numpy()
+            if stub.any():
+                if stub[-1]:
+                    log.warning("fx_daily %s 最新日线 %s 不完整（尚未收完，tick_qty=%s，窗口中位数 %.0f），已丢弃，取前一根",
+                                code, df["trade_date"].iloc[-1], int(tq.iloc[-1]), tq.median())
+                df = df[~stub]
+        return df[cols].reset_index(drop=True)
 
     def global_index(self, start, end):
         return self._fetch("index_global", ["ts_code", "trade_date", "close", "pct_chg"],
@@ -300,36 +321,47 @@ class TushareSource:
 
     # ------------------------------------------------------------ 快讯
 
-    def major_news(self, start_dt, end_dt):
-        """重大新闻。起始 3 小时窗口；某窗口返回 ≥800 行就二分重取，直到 <800 或窗口 ≤10 分钟；
-        按 title 去重。"""
+    def major_news(self, start_dt, end_dt, max_calls=None):
+        """重大新闻（pub_time 倒序、单次最多 800 行，保留的是窗口内最新的 800 行）。
+        从 end_dt 起向前翻页：每页取 [start_dt, 当前终点]，满 800 行就把终点挪到该页最早一条的时间继续，
+        不足 800 行即窗口取完；按 title 去重、pub_time 升序返回。
+        账号限额 major_news 40 次/天、30 次/小时，所以调用数以 max_calls（缺省 config.NEWS_MAX_CALLS）封顶：
+        用完预算或撞到配额，就返回已取到的（最新的）部分并记 WARNING，不抛异常。"""
         cols = ["pub_time", "src", "title", "url"]
+        max_calls = config.NEWS_MAX_CALLS if max_calls is None else max_calls
         s, e = datetime.strptime(start_dt, _NEWS_FMT), datetime.strptime(end_dt, _NEWS_FMT)
-        frames = []
-
-        def fetch(a, b):
-            df = self.call("major_news", start_date=a.strftime(_NEWS_FMT), end_date=b.strftime(_NEWS_FMT),
-                           fields="title,pub_time,src,url")
-            if len(df) >= _NEWS_PAGE_LIMIT and (b - a) > _NEWS_MIN_WINDOW:
-                mid = a + (b - a) / 2
-                fetch(a, mid)
-                fetch(mid, b)
-                return
-            if len(df) >= _NEWS_PAGE_LIMIT:
-                log.warning("major_news 窗口 %s ~ %s 已达最小窗口仍返回 >= %d 行，结果可能被截断",
-                            a.strftime(_NEWS_FMT), b.strftime(_NEWS_FMT), _NEWS_PAGE_LIMIT)
+        frames, calls, cur, complete = [], 0, e, False
+        while calls < max_calls:
+            try:
+                df = self.call("major_news", start_date=s.strftime(_NEWS_FMT), end_date=cur.strftime(_NEWS_FMT),
+                               fields="title,pub_time,src,url")
+            except RateLimited:
+                log.warning("major_news 接口配额用尽（账号 40 次/天、30 次/小时），新闻%s",
+                            f"仅覆盖 {cur.strftime(_NEWS_FMT)} 之后" if frames else "留空")
+                return self._news_result(frames, cols)
+            calls += 1
             if df.empty:
-                return
+                complete = True
+                break
             if not all(c in df.columns for c in cols):
-                log.warning("major_news 返回缺少预期列，该窗口按空数据处理")
-                return
+                log.warning("major_news 返回缺少预期列，按空数据处理")
+                complete = True
+                break
             frames.append(df[cols])
+            if len(df) < _NEWS_PAGE_LIMIT:
+                complete = True
+                break
+            oldest = datetime.strptime(str(df["pub_time"].min()), _NEWS_FMT)
+            cur = oldest if oldest < cur else cur - timedelta(seconds=1)
+            if cur <= s:
+                complete = True
+                break
+        if not complete:
+            log.warning("major_news 已用满本次 %d 次调用预算，新闻仅覆盖 %s 之后", max_calls, cur.strftime(_NEWS_FMT))
+        return self._news_result(frames, cols)
 
-        a = s
-        while a < e:
-            b = min(a + _NEWS_INIT_WINDOW, e)
-            fetch(a, b)
-            a = b
+    @staticmethod
+    def _news_result(frames, cols):
         if not frames:
             return _empty(cols)
         out = pd.concat(frames, ignore_index=True).drop_duplicates("title")

@@ -245,7 +245,7 @@ class DemoSource:
 
     # ------------------------------------------------------------ 快讯
 
-    def major_news(self, start_dt, end_dt):
+    def major_news(self, start_dt, end_dt, max_calls=None):
         s, e = datetime.strptime(start_dt, _FMT), datetime.strptime(end_dt, _FMT)
         rows = []
         for hours, src, title in _NEWS_HITS:

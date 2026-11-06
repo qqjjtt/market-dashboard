@@ -338,56 +338,86 @@ def test_us_yields_and_m2():
 FMT = "%Y-%m-%d %H:%M:%S"
 
 
-def test_major_news_splits_full_window():
-    seen = []
+def _news_pro(rows):
+    """模拟 major_news：窗口内按时间倒序返回最新的 800 行（与真实接口行为一致）。"""
+    state = {"calls": []}
 
     def fake(start_date, end_date, fields=None):
-        s, e = datetime.strptime(start_date, FMT), datetime.strptime(end_date, FMT)
-        span = (e - s).total_seconds() / 60
-        if span > 90:
-            seen.append((span, 800))
-            return pd.DataFrame({"title": [f"BIG{i}" for i in range(800)], "pub_time": start_date,
-                                 "src": "x", "url": "u"})
-        seen.append((span, 10))
-        # 10 行，其中 3 个重复标题（与相邻窗口边界重叠时同样会出现）
-        titles = [f"{start_date}-{i}" for i in range(7)] + ["dup"] * 3
-        return pd.DataFrame({"title": titles, "pub_time": start_date, "src": "x", "url": "u"})
+        state["calls"].append((start_date, end_date))
+        sel = [r for r in rows if start_date <= r[0] <= end_date]
+        sel.sort(key=lambda r: r[0], reverse=True)
+        sel = sel[:800]
+        return pd.DataFrame({"pub_time": [r[0] for r in sel], "title": [r[1] for r in sel],
+                             "src": "x", "url": "u"})
 
-    src, _ = make(FakePro(major_news=fake))
-    df = src.major_news("2026-11-06 00:00:00", "2026-11-06 06:00:00")
-    assert not df.title.str.startswith("BIG").any()
-    assert df.title.is_unique
+    return FakePro(major_news=fake), state
+
+
+def _rows(n, day="2026-11-05"):
+    base = datetime.strptime(f"{day} 00:00:00", FMT)
+    return [((base + timedelta(seconds=10 * i)).strftime(FMT), f"T{i}") for i in range(n)]
+
+
+def test_major_news_pages_backwards_until_window_exhausted():
+    rows = _rows(2000)
+    pro, st = _news_pro(rows)
+    src, _ = make(pro)
+    df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert len(df) == 2000 and df.title.is_unique
+    assert len(st["calls"]) == 3  # 800 + 800 + 400，没有按固定时间窗口空转
     assert list(df.columns) == ["pub_time", "src", "title", "url"]
-    assert all(n < 800 for span, n in seen if span <= 90)
-    assert any(n == 800 for _, n in seen)  # 确实触发了二分
+    assert df.pub_time.is_monotonic_increasing
 
 
-def test_major_news_stops_at_min_window():
-    calls = []
-
-    def always_full(start_date, end_date, fields=None):
-        calls.append((start_date, end_date))
-        return pd.DataFrame({"title": [f"{start_date}-{i}" for i in range(800)], "pub_time": start_date,
-                             "src": "x", "url": "u"})
-
-    src, _ = make(FakePro(major_news=always_full))
-    df = src.major_news("2026-11-06 00:00:00", "2026-11-06 00:30:00")
-    assert len(df) > 0
-    spans = [datetime.strptime(e, FMT) - datetime.strptime(s, FMT) for s, e in calls]
-    # 30 -> 15 -> 7.5：窗口 <= 10 分钟后不再二分，所以最小被调用窗口 >= 10/2 分钟
-    assert min(spans) >= timedelta(minutes=5)
-    assert len(calls) == 7  # 1 + 2 + 4，没有对 7.5 分钟窗口继续二分
+def test_major_news_single_call_when_under_cap():
+    pro, st = _news_pro(_rows(100))
+    src, _ = make(pro)
+    df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert len(df) == 100 and len(st["calls"]) == 1
 
 
-def test_major_news_floor_truncation_warns(caplog):
-    def always_full(start_date, end_date, fields=None):
-        return pd.DataFrame({"title": [f"{start_date}-{i}" for i in range(800)], "pub_time": start_date,
-                             "src": "x", "url": "u"})
-
-    src, _ = make(FakePro(major_news=always_full))
+def test_major_news_call_budget_caps_calls_and_warns(caplog):
+    pro, st = _news_pro(_rows(4000))
+    src, _ = make(pro)
     with caplog.at_level(logging.WARNING, logger="sources"):
-        src.major_news("2026-11-06 00:00:00", "2026-11-06 00:08:00")
-    assert any("截断" in r.getMessage() for r in caplog.records)
+        df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59", max_calls=2)
+    assert len(st["calls"]) == 2 and len(df) == 1599  # 两页共享一条边界行，去重后少一条
+    # 保留的是最新的行，且告警说明覆盖到哪里
+    assert df.pub_time.max() == _rows(4000)[-1][0]
+    assert any("仅覆盖" in r.getMessage() for r in caplog.records)
+
+
+def test_major_news_same_second_page_still_progresses():
+    rows = [("2026-11-05 10:00:00", f"S{i}") for i in range(800)] + [("2026-11-05 09:00:00", "early")]
+    pro, st = _news_pro(rows)
+    src, _ = make(pro)
+    df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59", max_calls=5)
+    assert "early" in set(df.title) and len(st["calls"]) <= 3
+
+
+def test_major_news_quota_error_returns_partial_without_retry(caplog):
+    rows = _rows(2000)
+    inner, st = _news_pro(rows)
+
+    def fake(start_date, end_date, fields=None):
+        if len(st["calls"]) >= 1:
+            st["calls"].append("blocked")
+            raise Exception("抱歉，您访问接口(major_news)频率超限(30次/小时)，具体频次详情：https://tushare.pro/document/1?doc_id=108。")
+        return inner.apis["major_news"](start_date, end_date, fields)
+
+    src, slept = make(FakePro(major_news=fake))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert len(df) == 800 and slept == []  # 第二页被限额拦下，不重试
+    assert len(st["calls"]) == 2
+    assert any("配额" in r.getMessage() for r in caplog.records)
+
+
+def test_major_news_quota_error_before_any_data_returns_empty():
+    pro = FakePro(major_news=Exception("抱歉，您访问接口(major_news)频率超限(40次/天)，具体频次详情"))
+    src, slept = make(pro)
+    df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert df.empty and list(df.columns) == ["pub_time", "src", "title", "url"] and slept == []
 
 
 def test_major_news_empty():
@@ -407,3 +437,46 @@ def test_results_sorted_ascending():
                                            "close": [3.0, 1.0, 2.0], "amount": [1.0, 1.0, 1.0]}))
     src, _ = make(pro)
     assert list(src.etf_daily("510300.SH", "20261101", "20261105").close) == [1.0, 2.0, 3.0]
+
+
+# ---------------------------------------------------------------- 配额类频控不重试 / fx 残缺日线
+
+@pytest.mark.parametrize("quota", ["40次/天", "30次/小时"])
+def test_daily_or_hourly_quota_is_not_retried_for_any_api(quota):
+    from sources import RateLimited
+    pro = FakePro(daily=Exception(f"抱歉，您访问接口(daily)频率超限({quota})，具体频次详情"))
+    src, slept = make(pro)
+    with pytest.raises(RateLimited):
+        src.call("daily")
+    assert slept == [] and len(pro.calls) == 1
+
+
+def _fx_frame(ticks, last_dates=None):
+    dates = last_dates or [f"2026110{i}" for i in range(1, len(ticks) + 1)]
+    return pd.DataFrame({"ts_code": "UKOIL", "trade_date": dates, "bid_close": [100.0 + i for i in range(len(ticks))],
+                         "tick_qty": ticks})
+
+
+def test_fx_drops_stub_bar_and_warns_when_latest(caplog):
+    df = _fx_frame([380000, 390000, 400000, 3])
+    src, _ = make(FakePro(fx_daily=df))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        out = src.fx("UKOIL", "20261101", "20261105")
+    assert list(out.trade_date) == ["20261101", "20261102", "20261103"]
+    assert list(out.columns) == ["trade_date", "close"]
+    assert any("不完整" in r.getMessage() and "UKOIL" in r.getMessage() for r in caplog.records)
+
+
+def test_fx_drops_old_stub_silently(caplog):
+    df = _fx_frame([380000, 4, 400000, 390000])  # 中间一根（如周末）残缺，最新一根正常
+    src, _ = make(FakePro(fx_daily=df))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        out = src.fx("UKOIL", "20261101", "20261105")
+    assert list(out.trade_date) == ["20261101", "20261103", "20261104"]
+    assert not caplog.records
+
+
+def test_fx_without_tick_qty_keeps_all_rows():
+    df = _fx_frame([1, 1, 1]).drop(columns="tick_qty")
+    src, _ = make(FakePro(fx_daily=df))
+    assert len(src.fx("UKOIL", "20261101", "20261105")) == 3
