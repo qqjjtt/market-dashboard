@@ -16,7 +16,6 @@
     margin: 0; background: var(--bg); color: var(--ink);
     font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
     font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums;
-    overflow-x: hidden;
   }
   #demo-banner { display: none; background: var(--red); color: #fff; text-align: center; padding: 8px 12px; font-weight: 600; }
   main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
@@ -119,11 +118,85 @@
   footer.foot li { overflow-wrap: anywhere; }
   footer.foot p { margin: 12px 0 0; }
 
+  /* team (国家队) */
+  .chart-card { padding: 14px 14px 8px; }
+  #etf-chart { width: 100%; height: 340px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; align-items: start; }
+  .card h3 { margin: 0 0 4px; font-size: 16px; line-height: 1.35; }
+  .card .sub-line { margin: 0 0 12px; color: var(--grey); font-size: 12.5px; overflow-wrap: anywhere; }
+  .card .sub-line b { font-weight: 700; }
+  .last3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+  .day-card { background: #faf6ef; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .day-card .dt { font-size: 12px; color: var(--grey); }
+  .day-card .dv { margin-top: 2px; font-size: 22px; font-weight: 700; line-height: 1.25; white-space: nowrap; }
+  .day-card .dv small { font-size: 11.5px; font-weight: 400; color: var(--grey); margin-left: 2px; }
+  .day-card.pending .dv { color: #b0a79b; font-size: 17px; font-weight: 600; }
+  .mini-title { font-size: 12.5px; color: var(--grey); margin: 4px 0 2px; }
+  #monthly-chart { width: 100%; height: 230px; }
+  .note-foot { margin: 8px 0 0; font-size: 12px; color: var(--grey); }
+  .note-foot b { color: var(--ink); }
+
+  .fp-list { list-style: none; margin: 0; padding: 0; }
+  .fp-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 12px; padding: 9px 0; border-bottom: 1px dashed var(--border); font-size: 14px; }
+  .fp-list li:last-child { border-bottom: 0; }
+  .fp-list .nm { color: var(--ink); }
+  .fp-list .nm small { color: var(--grey); font-size: 12px; margin-left: 6px; }
+  .fp-list .vl { font-weight: 600; text-align: right; }
+  .fp-list .vl .y { color: var(--grey); font-weight: 400; }
+  .concl-box { display: flex; align-items: center; gap: 16px; border: 1.5px solid var(--orange); border-radius: 12px; padding: 12px 16px; margin: 12px 0 14px; background: #fff9f1; }
+  .concl-box .big { flex: 0 0 auto; text-align: center; min-width: 78px; }
+  .concl-box .big .n { font-size: 36px; font-weight: 800; line-height: 1.1; }
+  .concl-box .big .s { font-size: 11.5px; color: var(--grey); margin-top: 2px; }
+  .concl-box .txt { font-size: 13.5px; line-height: 1.6; min-width: 0; overflow-wrap: anywhere; }
+  .concl-box .txt b { color: var(--orange); }
+  .ratio-row { display: grid; grid-template-columns: 6.6em 1fr 3.4em; align-items: center; gap: 8px; margin: 7px 0; font-size: 13px; }
+  .ratio-row .rn { color: var(--ink); white-space: nowrap; }
+  .ratio-row .rv { text-align: right; font-weight: 700; }
+  .ratio-track { position: relative; height: 12px; background: var(--track); border-radius: 6px; }
+  .ratio-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; }
+  .ratio-ref { position: absolute; top: -3px; bottom: -3px; border-left: 2px dashed #5a5249; }
+
+  /* retail (散户情绪) */
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .kpi { padding: 16px 18px; }
+  .kpi .kl { font-size: 12.5px; color: var(--grey); }
+  .kpi .kv { margin-top: 4px; font-size: 40px; font-weight: 800; line-height: 1.15; color: var(--tone, var(--ink)); white-space: nowrap; }
+  .kpi .kv small { font-size: 14px; font-weight: 500; color: var(--grey); margin: 0 3px; }
+  .kpi .ks { margin-top: 4px; font-size: 12.5px; color: var(--grey); overflow-wrap: anywhere; }
+  .band { display: flex; gap: 0; margin: 14px 0 8px; border-radius: 8px; overflow: hidden; font-size: 12px; }
+  .band span { flex: 1 1 0; text-align: center; padding: 5px 2px; color: #fff; font-weight: 600; min-width: 0; white-space: nowrap; }
+  .band span.cur { box-shadow: inset 0 0 0 2px #2b2723; }
+  #temp-chart { width: 100%; height: 320px; }
+  .dims { display: flex; flex-wrap: wrap; gap: 6px 8px; margin-top: 8px; }
+  .dims span { background: #faf6ef; border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; color: var(--grey); }
+  .dims span b { color: var(--ink); margin-left: 2px; }
+  .dims-line { margin-top: 8px; font-size: 12.5px; color: var(--grey); }
+  .wall-intro { font-size: 12.5px; color: var(--grey); margin: 0 0 6px; overflow-wrap: anywhere; }
+  .wall-intro b { color: var(--ink); }
+  table.wall { width: 100%; border-collapse: collapse; }
+  table.wall th { text-align: left; color: var(--grey); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.wall th.r, table.wall td.r { text-align: right; }
+  table.wall td { padding: 11px 8px; border-bottom: 1px dashed var(--border); vertical-align: middle; }
+  table.wall tr:last-child td { border-bottom: 0; }
+  table.wall tr.first td { background: #fbeeea; }
+  table.wall tr.first td:first-child { border-radius: 10px 0 0 10px; }
+  table.wall tr.first td:last-child { border-radius: 0 10px 10px 0; }
+  table.wall .nm { font-weight: 600; }
+  table.wall .nm small { color: var(--grey); font-weight: 400; font-size: 12px; margin-left: 6px; white-space: nowrap; }
+  table.wall td.bar { width: 42%; }
+  .wbar { position: relative; height: 12px; background: var(--track); border-radius: 6px; }
+  .wbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; }
+  .wbar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #1c1917; text-decoration: none; }
+  table.wall td.pv { font-size: 20px; font-weight: 800; white-space: nowrap; }
+  table.wall td.cv { font-weight: 700; white-space: nowrap; }
+
   @media (max-width: 900px) {
     .conclusions { grid-template-columns: repeat(2, 1fr); }
     .signals { grid-template-columns: repeat(2, 1fr); }
     .idx-strip { grid-template-columns: repeat(3, 1fr); row-gap: 6px; }
     .idx:nth-child(3) { border-right: 0; }
+    .two-col { grid-template-columns: 1fr; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   }
   @media (max-width: 560px) {
     main { padding: 14px 16px 32px; }
@@ -137,6 +210,21 @@
     .mini { padding: 12px 12px 8px; }
     .mini .val { font-size: 22px; }
     .card { padding: 14px; }
+    .kpi-grid { gap: 10px; }
+    .kpi { padding: 12px 14px; }
+    .kpi .kv { font-size: 32px; }
+    #etf-chart { height: 300px; }
+    #temp-chart { height: 290px; }
+    .last3 { gap: 8px; }
+    .day-card { padding: 8px 8px; }
+    .day-card .dv { font-size: 18px; }
+    .concl-box { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .concl-box .big { text-align: left; }
+    .ratio-row { grid-template-columns: 6.6em 1fr 3.2em; gap: 6px; }
+    table.wall th.bar, table.wall td.bar { display: none; }
+    table.wall td { padding: 10px 6px; }
+    table.wall td.pv { font-size: 18px; }
+    .band span { font-size: 10.5px; }
   }
 </style>
 </head>
@@ -196,20 +284,41 @@ function fmtDateLong(s) {
   return typeof s === "string" && /^\d{8}$/.test(s) ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : (s || DASH);
 }
 
-/* charts registry: every chart is created via makeChart so window resize reaches it */
-var CHARTS = [];
-function makeChart(dom) {
+/* charts registry: every chart is created via makeChart so window resize reaches it.
+   RULE: ECharts reads the container size at init, so never init on a detached node (it would be 0x0).
+   makeChart(dom, setup): if dom is already attached it inits now; otherwise it queues and the bootstrap
+   calls flushCharts() once the renderer has attached its section. setup(chart) runs after init, then resize().
+   Returns the chart when created synchronously, else null. */
+var CHARTS = [], PENDING = [];
+function makeChart(dom, setup) {
   if (typeof echarts === "undefined") return null;
+  if (!dom.isConnected) { PENDING.push({ dom: dom, setup: setup }); return null; }
   var c = echarts.init(dom, null, { renderer: "canvas" });
   CHARTS.push(c);
+  if (setup) setup(c);
+  c.resize();
   return c;
 }
+function flushCharts() {
+  var q = PENDING;
+  PENDING = [];
+  q.forEach(function (p) { if (p.dom.isConnected) makeChart(p.dom, p.setup); });
+}
+/* layout that depends on the 560px breakpoint: fn(narrow) re-runs when a resize crosses it */
+var NARROW = 560;
+function isNarrow() { return window.innerWidth <= NARROW; }
+var BREAKPOINTS = [];
+function onBreakpoint(fn) { BREAKPOINTS.push({ fn: fn, last: isNarrow() }); }
 var _rt = null;
 window.addEventListener("resize", function () {
   clearTimeout(_rt);
-  _rt = setTimeout(function () { CHARTS.forEach(function (c) { c.resize(); }); }, 80);
+  _rt = setTimeout(function () {
+    CHARTS.forEach(function (c) { c.resize(); });
+    var n = isNarrow();                 /* evaluated after the debounce, when the final width is settled */
+    BREAKPOINTS.forEach(function (b) { if (b.last !== n) { b.last = n; b.fn(n); } });
+  }, 80);
 });
-window.addEventListener("load", function () { CHARTS.forEach(function (c) { c.resize(); }); });
+window.addEventListener("load", function () { flushCharts(); CHARTS.forEach(function (c) { c.resize(); }); });
 
 /* section skeleton: returns {root, body}; optional right-hand control */
 function makeSection(title, subtitle, control) {
@@ -252,7 +361,7 @@ function renderHeader(root) {
   var line = el("div", "meta-line");
   [
     "交易日 " + fmtDateLong(m.trade_date),
-    "数据截止 " + fmtDateLong(m.trade_date) + " 收盘",
+    "各面板数据日期见卡片角标",
     "生成 " + (m.generated_at || DASH) + "（北京时间）",
     "板块口径 " + (m.sector_mode || DASH),
     "尾盘来源 " + (m.tail_source || DASH)
@@ -302,18 +411,18 @@ function renderIndices(parent) {
 function sparkChart(dom, series, color) {
   var data = (series || []).map(function (v) { return isNum(v) ? v : null; });
   if (data.filter(isNum).length < 2) return;
-  var c = makeChart(dom);
-  if (!c) return;
-  c.setOption({
-    animation: false, silent: true,
-    grid: { left: 2, right: 2, top: 4, bottom: 2 },
-    xAxis: { type: "category", show: false, data: data.map(function (_, i) { return i; }) },
-    yAxis: { type: "value", show: false, scale: true },
-    series: [{
-      type: "line", data: data, showSymbol: false, smooth: true, connectNulls: true,
-      lineStyle: { width: 1.6, color: color },
-      areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: color + "44" }, { offset: 1, color: color + "00" }] } }
-    }]
+  makeChart(dom, function (c) {
+    c.setOption({
+      animation: false, silent: true,
+      grid: { left: 2, right: 2, top: 4, bottom: 2 },
+      xAxis: { type: "category", show: false, data: data.map(function (_, i) { return i; }) },
+      yAxis: { type: "value", show: false, scale: true },
+      series: [{
+        type: "line", data: data, showSymbol: false, smooth: true, connectNulls: true,
+        lineStyle: { width: 1.6, color: color },
+        areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: color + "44" }, { offset: 1, color: color + "00" }] } }
+      }]
+    });
   });
 }
 
@@ -540,10 +649,11 @@ function renderSector(root) {
       return;
     }
     if (!chart) { box.textContent = ""; }
-    var narrow = window.innerWidth <= 560;
+    var narrow = isNarrow();
     var rowH = narrow ? 34 : 30;
     box.style.height = (rows.length * rowH + 30) + "px";
     if (!chart) chart = makeChart(box);
+    if (!chart) return;
     var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.net); })) || 1;
     var lim = maxAbs * 1.28;
     chart.setOption({
@@ -588,6 +698,506 @@ function renderSector(root) {
     chart.resize();
   }
   draw();
+  onBreakpoint(function () { draw(); });
+}
+
+/* ================= team (国家队): ETF flow, round summary, volume fingerprint ================= */
+var ETF_PALETTE = ["#c8402f", "#2f5d8a", "#e08a2a", "#2a9d75", "#7a5ea8", "#b8860b", "#3aa6b9", "#d46a8a", "#6b7f3a", "#8a8178", "#4a4036"];
+var AXIS_TXT = "#8a8178", GRID_LN = "#f1ebe2";
+
+function chartMsg(box, text) {
+  box.textContent = "";
+  box.appendChild(el("div", "chart-msg", text));
+}
+function dropChart(chart) {
+  if (!chart) return null;
+  chart.dispose();
+  CHARTS.splice(CHARTS.indexOf(chart), 1);
+  return null;
+}
+function areaGrad(color) {
+  return { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: color + "55" }, { offset: 1, color: color + "05" }] } };
+}
+
+function etfOption(E, mode, narrow) {
+  var dates = E.dates || [];
+  var xAxis = {
+    type: "category", data: dates, boundaryGap: mode === "daily",
+    axisLabel: { color: AXIS_TXT, fontSize: 11, formatter: function (v) { return fmtDay(v); }, hideOverlap: true },
+    axisLine: { lineStyle: { color: "#ddd3c4" } }, axisTick: { show: false }
+  };
+  var yTxt = { color: AXIS_TXT, fontSize: 11, formatter: function (v) { return fmtNum(v, 0); } };
+  var ySplit = { lineStyle: { color: GRID_LN } };
+  var opt = { animation: true, textStyle: { fontFamily: "inherit" } };
+  var tipHead = function (ps) { return esc(fmtDateLong(ps[0].axisValue)); };
+
+  if (mode === "daily") {
+    opt.grid = { left: 44, right: 12, top: 18, bottom: 28 };
+    opt.tooltip = { trigger: "axis", axisPointer: { type: "shadow" }, formatter: function (ps) {
+      var v = ps[0].value;
+      return tipHead(ps) + "<br>净申赎 " + esc(fmtSigned(v, 2)) + " 亿元";
+    } };
+    opt.xAxis = xAxis;
+    opt.yAxis = { type: "value", axisLabel: yTxt, splitLine: ySplit, axisLine: { show: false } };
+    opt.series = [{
+      type: "bar", barMaxWidth: 14,
+      data: (E.daily || []).map(function (v) {
+        return isNum(v) ? { value: v, itemStyle: { color: v >= 0 ? COLORS.red : COLORS.green, borderRadius: v >= 0 ? [2, 2, 0, 0] : [0, 0, 2, 2] } } : null;
+      })
+    }];
+  } else if (mode === "cum") {
+    opt.grid = { left: 46, right: narrow ? 46 : 54, top: 38, bottom: 28 };
+    opt.legend = { top: 0, right: 8, itemWidth: 14, itemHeight: 8, textStyle: { color: AXIS_TXT, fontSize: 12 }, data: ["累计净申购（左）", "沪深300收盘价（右）"] };
+    opt.tooltip = { trigger: "axis", formatter: function (ps) {
+      var out = tipHead(ps);
+      ps.forEach(function (p) {
+        var cum = p.seriesIndex === 0;
+        out += "<br>" + p.marker + esc(p.seriesName) + " " + esc(isNum(p.value) ? (cum ? fmtSigned(p.value, 2) + " 亿元" : fmtNum(p.value, 2)) : DASH);
+      });
+      return out;
+    } };
+    opt.xAxis = xAxis;
+    opt.yAxis = [
+      { type: "value", scale: true, axisLabel: yTxt, splitLine: ySplit, axisLine: { show: false } },
+      { type: "value", scale: true, axisLabel: { color: COLORS.blue, fontSize: 11, formatter: function (v) { return fmtNum(v, 0); } }, splitLine: { show: false }, axisLine: { show: false } }
+    ];
+    opt.series = [
+      { name: "累计净申购（左）", type: "line", data: E.cum || [], showSymbol: false, lineStyle: { width: 2.2, color: COLORS.red }, itemStyle: { color: COLORS.red }, areaStyle: areaGrad(COLORS.red), z: 2 },
+      { name: "沪深300收盘价（右）", type: "line", yAxisIndex: 1, data: E.index_close || [], showSymbol: false, lineStyle: { width: 1.8, color: COLORS.blue }, itemStyle: { color: COLORS.blue }, z: 3 }
+    ];
+  } else {
+    var per = E.per_etf || [];
+    opt.grid = { left: 48, right: 12, top: narrow ? 64 : 44, bottom: 28 };
+    opt.legend = { type: "scroll", top: 0, left: 0, right: 0, itemWidth: 14, itemHeight: 8, textStyle: { color: AXIS_TXT, fontSize: 12 },
+      data: per.map(function (p) { return p.name || p.code; }) };
+    opt.tooltip = { trigger: "axis", confine: true, formatter: function (ps) {
+      var out = tipHead(ps);
+      ps.forEach(function (p) { out += "<br>" + p.marker + esc(p.seriesName) + " " + esc(isNum(p.value) ? fmtNum(p.value, 2) + " 亿份" : DASH); });
+      return out;
+    } };
+    opt.xAxis = xAxis;
+    opt.yAxis = { type: "value", scale: true, axisLabel: yTxt, splitLine: ySplit, axisLine: { show: false } };
+    opt.series = per.map(function (p, i) {
+      return { name: p.name || p.code, type: "line", data: p.share || [], showSymbol: false, lineStyle: { width: 1.6, color: ETF_PALETTE[i % ETF_PALETTE.length] }, itemStyle: { color: ETF_PALETTE[i % ETF_PALETTE.length] } };
+    });
+  }
+  return opt;
+}
+
+function teamChart(body) {
+  var E = DATA.etf_flow || {};
+  var mode = "daily", chart = null;
+  var card = el("div", "card chart-card");
+  var box = el("div");
+  box.id = "etf-chart";
+  card.appendChild(box);
+  body.appendChild(card);
+
+  function draw() {
+    if (!(E.dates || []).length || typeof echarts === "undefined") {
+      chart = dropChart(chart);
+      chartMsg(box, (E.dates || []).length ? "图表库未加载（需联网访问 cdnjs）" : "无数据");
+      return;
+    }
+    if (!chart) { box.textContent = ""; chart = makeChart(box); }
+    if (!chart) return;
+    chart.setOption(etfOption(E, mode, isNarrow()), true);
+    chart.resize();
+  }
+  onBreakpoint(draw);
+  return { setMode: function (k) { mode = k; draw(); }, draw: draw };
+}
+
+/* highlight signed percents and a few key phrases in the auto conclusion; everything via textContent */
+var KEY_PHRASES = "托底的钱在收手|进攻的钱在换标的|成交降温 ≠ 净赎回|资金向宽基集中|整体活跃度上升|ETF 通道整体降温";
+function fillHighlighted(parent, text) {
+  var re = new RegExp("([+\\-−]\\d+(?:\\.\\d+)?%|" + KEY_PHRASES + ")", "g");
+  String(text == null ? "" : text).split(re).forEach(function (piece, i) {
+    if (!piece) return;
+    if (i % 2 === 0) { parent.appendChild(document.createTextNode(piece)); return; }
+    if (/^[+\-−]/.test(piece)) parent.appendChild(el("span", piece.charAt(0) === "+" ? "up" : "down", piece));
+    else parent.appendChild(el("b", null, piece));
+  });
+}
+
+function roundCard() {
+  var R = DATA.round || {};
+  var card = el("div", "card");
+  card.appendChild(el("h3", null, "📊 " + (isNum(R.count) ? R.count : DASH) + " 只固定宽基本轮逐日净申赎"));
+  var sub = el("p", "sub-line");
+  sub.appendChild(document.createTextNode(fmtDateLong(R.start) + " — " + fmtDateLong(R.end) + " 累计 "));
+  sub.appendChild(el("b", dirClass(R.total), isNum(R.total) ? fmtSigned(R.total, 1) + " 亿元" : DASH));
+  var rest = "。";
+  if (isNum(R.low) && isNum(R.high) && isNum(R.mid)) {
+    rest = "；按 70%—90% 归因情景，疑似国家队回补约 " + fmtNum(R.low, 0) + "—" + fmtNum(R.high, 0) + " 亿（中值 " + fmtNum(R.mid, 0) + " 亿）。归因比例为假设，非公开数据。";
+  }
+  sub.appendChild(document.createTextNode(rest));
+  card.appendChild(sub);
+
+  var l3 = (R.last3 || []).slice().sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  var row = el("div", "last3");
+  if (!l3.length) row.appendChild(el("div", "empty-note", "无数据"));
+  l3.forEach(function (d) {
+    var has = isNum(d.value);
+    var c = el("div", "day-card" + (has ? "" : " pending"));
+    c.appendChild(el("div", "dt", fmtDay(d.date) || DASH));
+    var dv = el("div", "dv " + (has ? dirClass(d.value) : ""), has ? fmtSigned(d.value, 1) : "待披露");
+    if (has) dv.appendChild(el("small", null, "亿元"));
+    c.appendChild(dv);
+    row.appendChild(c);
+  });
+  card.appendChild(row);
+
+  card.appendChild(el("div", "mini-title", "最近 " + ((DATA.monthly || []).length || 6) + " 个月净申赎合计（亿元）"));
+  var box = el("div");
+  box.id = "monthly-chart";
+  card.appendChild(box);
+  var foot = el("p", "note-foot");
+  add(foot, document.createTextNode("缺值保持空值，"), el("b", null, "不填 0，也不当卖出"));
+  card.appendChild(foot);
+  return { card: card, box: box };
+}
+
+function drawMonthly(box) {
+  var M = (DATA.monthly || []).filter(Boolean);
+  if (!M.length) { chartMsg(box, "无数据"); return; }
+  if (typeof echarts === "undefined") { chartMsg(box, "图表库未加载（需联网访问 cdnjs）"); return; }
+  var vals = M.map(function (m) { return isNum(m.value) ? m.value : 0; });
+  var mx = Math.max.apply(null, vals.concat([0])), mn = Math.min.apply(null, vals.concat([0]));
+  var span = (mx - mn) || 1;
+  makeChart(box, function (c) {
+    c.setOption({
+      animation: true,
+      grid: { left: 8, right: 8, top: 22, bottom: 40 },
+      tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, formatter: function (ps) {
+        var m = M[ps[0].dataIndex];
+        return esc(m.label) + "（" + esc(isNum(m.days) ? m.days : DASH) + " 个交易日）<br>净申赎 " + esc(fmtSigned(m.value, 1)) + " 亿元";
+      } },
+      xAxis: { type: "category", data: M.map(function (m) { return m.label + "\n" + (isNum(m.days) ? m.days + "日" : DASH); }),
+        axisLine: { onZero: false, lineStyle: { color: "#ddd3c4" } }, axisTick: { show: false },
+        axisLabel: { color: AXIS_TXT, fontSize: 12, lineHeight: 16, interval: 0, margin: 10 } },
+      yAxis: { type: "value", show: false, min: mn - span * 0.22, max: mx + span * 0.22 },
+      series: [{
+        type: "bar", barWidth: "46%",
+        markLine: { silent: true, symbol: "none", label: { show: false }, lineStyle: { color: "#cdbfae", width: 1 }, data: [{ yAxis: 0 }] },
+        data: M.map(function (m) {
+          if (!isNum(m.value)) return null;
+          return { value: m.value, itemStyle: { color: m.value >= 0 ? COLORS.red : COLORS.green, borderRadius: m.value >= 0 ? [3, 3, 0, 0] : [0, 0, 3, 3] },
+            label: { position: m.value >= 0 ? "top" : "bottom" } };
+        }),
+        label: { show: true, fontSize: 12, fontWeight: 600, color: "#2b2723", formatter: function (p) { return fmtSigned(Math.round(p.value), 0); } }
+      }]
+    });
+  });
+}
+
+function fingerprintCard() {
+  var F = DATA.fingerprint || {};
+  var card = el("div", "card");
+  card.appendChild(el("h3", null, "成交指纹：谁在退、谁在进"));
+  card.appendChild(el("p", "sub-line", (F.date ? fmtDay(F.date) + " · " : "") + "ETF 成交额（亿元），今日对昨日"));
+  var groups = F.groups || [];
+  var ul = el("ul", "fp-list");
+  if (!groups.length) ul.appendChild(el("li", "muted", "无数据"));
+  groups.forEach(function (g) {
+    var li = el("li");
+    var nm = el("span", "nm", g.name || DASH);
+    nm.appendChild(el("small", null, "（" + (isNum(g.n) ? g.n : DASH) + " 只）"));
+    var vl = el("span", "vl " + dirClass(g.chg_pct));
+    vl.appendChild(document.createTextNode((isNum(g.today) ? fmtNum(g.today, 2) : DASH) + " 亿 · "));
+    vl.appendChild(el("span", "y", "昨 " + (isNum(g.yday) ? fmtNum(g.yday, 2) : DASH)));
+    vl.appendChild(document.createTextNode("（" + (isNum(g.chg_pct) ? fmtSigned(g.chg_pct, 0) + "%" : DASH) + "）"));
+    add(li, nm, vl);
+    ul.appendChild(li);
+  });
+  var T = F.tail || {};
+  var li = el("li");
+  var nm = el("span", "nm", "尾盘占比");
+  nm.appendChild(el("small", null, "核心五通道 14:30 后成交 ÷ 全天"));
+  var vl = el("span", "vl");
+  var noTail = !isNum(T.today) && !isNum(T.yday);
+  if (noTail || T.source === "无分钟数据") {
+    vl.className = "vl muted";
+    vl.textContent = "无分钟数据";
+  } else {
+    vl.appendChild(document.createTextNode("今 " + (isNum(T.today) ? fmtNum(T.today, 1) + "%" : DASH) + " · "));
+    vl.appendChild(el("span", "y", "昨 " + (isNum(T.yday) ? fmtNum(T.yday, 1) + "%" : DASH)));
+    if (T.source) vl.appendChild(el("span", "y", "（" + T.source + "）"));
+  }
+  add(li, nm, vl);
+  ul.appendChild(li);
+  card.appendChild(ul);
+
+  var C = F.conclusion || {};
+  var box = el("div", "concl-box");
+  var big = el("div", "big");
+  big.appendChild(el("div", "n " + dirClass(C.big), isNum(C.big) ? fmtSigned(C.big, 0) + "%" : DASH));
+  big.appendChild(el("div", "s", C.small || ""));
+  var txt = el("div", "txt");
+  fillHighlighted(txt, C.text || DASH);
+  add(box, big, txt);
+  card.appendChild(box);
+
+  var gmax = Math.max.apply(null, groups.map(function (g) { return isNum(g.ratio) ? g.ratio : 0; }).concat([100]));
+  var scale = Math.max(120, Math.ceil(gmax * 1.1 / 10) * 10);
+  groups.forEach(function (g) {
+    var r = el("div", "ratio-row");
+    r.appendChild(el("span", "rn", g.name || DASH));
+    var track = el("div", "ratio-track");
+    if (isNum(g.ratio)) {
+      var fill = el("div", "ratio-fill");
+      fill.style.width = Math.max(0, Math.min(100, g.ratio / scale * 100)) + "%";
+      fill.style.background = g.ratio >= 100 ? COLORS.red : COLORS.green;
+      track.appendChild(fill);
+    }
+    var ref = el("div", "ratio-ref");
+    ref.style.left = (100 / scale * 100) + "%";
+    track.appendChild(ref);
+    r.appendChild(track);
+    r.appendChild(el("span", "rv " + (isNum(g.ratio) ? (g.ratio >= 100 ? "up" : "down") : "flat"), isNum(g.ratio) ? fmtNum(g.ratio, 0) + "%" : DASH));
+    card.appendChild(r);
+  });
+  if (groups.length) card.appendChild(el("p", "note-foot", "虚线 = 100%（与昨日持平）。" + (F.footnote || "")));
+  return card;
+}
+
+function renderTeam(root) {
+  var E = DATA.etf_flow || {};
+  var top = null;
+  var seg = makeSegmented([{ key: "daily", label: "单日净申赎" }, { key: "cum", label: "累计净申购" }, { key: "share", label: "单只份额" }], "daily",
+    function (k) { top.setMode(k); });
+  var sec = makeSection("国家队 · 资金流向与指数背离",
+    "沪市 " + ((E.per_etf || []).length || 11) + " 只核心 ETF 每日净申赎（亿元），正为流入；净申赎 = Δ份额 × 当日收盘价", seg);
+  root.appendChild(sec.root);                 /* attach first: charts must init on attached nodes */
+  top = teamChart(sec.body);
+  var two = el("div", "two-col");
+  var rc = roundCard();
+  add(two, rc.card, fingerprintCard());
+  sec.body.appendChild(two);
+  top.draw();
+  drawMonthly(rc.box);
+}
+
+/* ================= retail (散户情绪): temperature + concentration wall ================= */
+function tempTone(v) { return !isNum(v) ? "gray" : v >= 60 ? "red" : v >= 40 ? "orange" : "blue"; }
+function signTone(v, dead) { return !isNum(v) || Math.abs(v) < dead ? "gray" : v > 0 ? "red" : "green"; }
+
+function kpiCard(label, tone, build, sub) {
+  var c = el("div", "card kpi t-" + tone);
+  c.appendChild(el("div", "kl", label));
+  var v = el("div", "kv tnum");
+  build(v);
+  c.appendChild(v);
+  c.appendChild(el("div", "ks", sub));
+  return c;
+}
+
+function tempKpis(K, T) {
+  var g = el("div", "kpi-grid");
+  var f1 = function (v) { return isNum(v) ? fmtNum(v, 1) : DASH; };
+  g.appendChild(kpiCard("今日体温", tempTone(K.today), function (v) {
+    v.textContent = f1(K.today);
+    if (isNum(K.today)) v.appendChild(el("small", null, "分"));
+  }, "五维口径 · 六维含浓度为 " + f1(T.six_dim)));
+  g.appendChild(kpiCard("昨日 → 今日", signTone(K.delta, 2), function (v) {
+    v.textContent = isNum(K.delta) ? fmtSigned(K.delta, 1) : DASH;
+  }, "昨 " + f1(K.yday) + " → 今 " + f1(K.today) + " · " + (K.delta_text || DASH)));
+  g.appendChild(kpiCard("30 日均值偏离", signTone(K.dev, 5), function (v) {
+    v.textContent = isNum(K.dev) ? fmtSigned(K.dev, 1) : DASH;
+  }, "今日 " + f1(K.today) + " vs 均值 " + f1(K.mean) + " · " + (K.dev_text || DASH)));
+  g.appendChild(kpiCard("近 " + (isNum(K.n) ? K.n : 30) + " 日排名", tempTone(K.today), function (v) {
+    if (!isNum(K.rank)) { v.textContent = DASH; return; }
+    v.appendChild(el("small", null, "第"));
+    v.appendChild(document.createTextNode(String(K.rank)));
+    v.appendChild(el("small", null, "高"));
+  }, (isNum(K.n) ? K.n : DASH) + " 期中高于 " + (isNum(K.pct_above) ? fmtNum(K.pct_above, 0) : DASH) + "% 的交易日 · 最高 " + f1(K.max) + "（" + (fmtDay(K.max_date) || DASH) + "）"));
+  return g;
+}
+
+var BANDS = [["过热 80+", "#c8402f", 80], ["温暖 60–80", "#e08a2a", 60], ["中性 40–60", "#d6b34a", 40], ["偏冷 20–40", "#6f9cc4", 20], ["冰冷 <20", "#2f5d8a", -Infinity]];
+function bandLegend(today) {
+  var wrap = el("div", "band");
+  var hit = false;
+  BANDS.forEach(function (b) {
+    var s = el("span", null, b[0]);
+    s.style.background = b[1];
+    if (!hit && isNum(today) && today >= b[2]) { s.className = "cur"; hit = true; }
+    wrap.appendChild(s);
+  });
+  return wrap;
+}
+
+function tempOption(T, narrow) {
+  var ser = (T.series || []).filter(function (r) { return r && isNum(r.score); });
+  var K = T.kpis || {};
+  var n = ser.length, last = n - 1;
+  var vals = ser.map(function (r) { return r.score; });
+  var dates = ser.map(function (r) { return r.date; });
+  var mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals);
+  var maxI = vals.indexOf(mx), minI = vals.indexOf(mn);
+  var mean = isNum(K.mean) ? K.mean : vals.reduce(function (a, b) { return a + b; }, 0) / n;
+  var data = vals.map(function (v, i) {
+    var it = { value: v };
+    if (i === maxI) {
+      it.symbol = "circle"; it.symbolSize = 10; it.itemStyle = { color: COLORS.red, borderColor: "#fff", borderWidth: 2 };
+      it.label = { show: true, position: "top", distance: 8, color: COLORS.red, fontSize: 12.5, fontWeight: 700,
+        align: i >= n - 3 ? "right" : i <= 1 ? "left" : "center", formatter: fmtNum(v, 1) + " · 区间最高" };
+    }
+    if (i === minI) {
+      it.symbol = "circle"; it.symbolSize = 10; it.itemStyle = { color: COLORS.green, borderColor: "#fff", borderWidth: 2 };
+      it.label = { show: true, position: "bottom", distance: 8, color: COLORS.green, fontSize: 12.5, fontWeight: 700,
+        align: i >= n - 3 ? "right" : i <= 1 ? "left" : "center", formatter: fmtDay(dates[i]) + " · " + fmtNum(v, 1) };
+    }
+    if (i === last) {
+      var also = i === maxI ? "{s|区间最高}" : "";
+      it.symbol = "circle"; it.symbolSize = 12;
+      it.itemStyle = { color: i === minI ? COLORS.green : COLORS.red, borderColor: "#fff", borderWidth: 2 };
+      if (i !== minI) {
+        it.label = { show: true, position: "top", distance: 12, align: "right", offset: [12, 0], backgroundColor: "rgba(255,253,249,0.82)", padding: [0, 4], borderRadius: 4,
+          formatter: "{b|今日 " + fmtNum(v, 1) + "}" + (also ? "\n" + also : ""),
+          rich: { b: { fontSize: narrow ? 18 : 24, fontWeight: 800, color: COLORS.red, lineHeight: narrow ? 24 : 30 }, s: { fontSize: 12, fontWeight: 700, color: COLORS.red, align: "right" } } };
+      }
+    }
+    return it;
+  });
+  return {
+    animation: true,
+    grid: { left: 36, right: narrow ? 22 : 30, top: 56, bottom: 28 },
+    tooltip: { trigger: "axis", formatter: function (ps) {
+      var p = ps.filter(function (x) { return x.seriesType === "line"; })[0] || ps[0];
+      return esc(fmtDateLong(dates[p.dataIndex])) + "<br>体温 " + esc(fmtNum(vals[p.dataIndex], 1));
+    } },
+    xAxis: { type: "category", data: dates, axisTick: { show: false }, axisLine: { lineStyle: { color: "#ddd3c4" } },
+      axisLabel: { color: AXIS_TXT, fontSize: 11, formatter: function (v) { return fmtDay(v); }, hideOverlap: true } },
+    yAxis: [
+      { type: "value", min: Math.max(0, Math.floor((mn - 6) / 10) * 10), max: Math.min(100, Math.ceil((mx + 12) / 10) * 10),
+        axisLabel: { color: AXIS_TXT, fontSize: 11 }, splitLine: { lineStyle: { color: GRID_LN } }, axisLine: { show: false } },
+      { type: "value", show: false, min: 0, max: 1 }
+    ],
+    series: [
+      { type: "bar", yAxisIndex: 1, barWidth: "100%", barCategoryGap: "0%", silent: true, z: 0, tooltip: { show: false },
+        data: vals.map(function (_, i) { return i === last ? { value: 1, itemStyle: { color: "rgba(224,138,42,0.16)" } } : null; }) },
+      { type: "line", z: 3, data: data, symbol: "circle", symbolSize: 5, smooth: false,
+        lineStyle: { width: 2.4, color: COLORS.orange }, itemStyle: { color: COLORS.orange },
+        areaStyle: areaGrad(COLORS.orange),
+        markLine: { silent: true, symbol: "none", lineStyle: { type: "dashed", color: COLORS.grey, width: 1.2 },
+          label: { position: "insideStartTop", color: COLORS.grey, fontSize: 11.5, backgroundColor: "rgba(255,253,249,0.85)", padding: [1, 4], borderRadius: 3, formatter: "30 日均值 " + fmtNum(mean, 1) },
+          data: [{ yAxis: mean }] } }
+    ]
+  };
+}
+
+function renderTemperature(body) {
+  var T = DATA.temperature || {}, K = T.kpis || {};
+  var ser = (T.series || []).filter(function (r) { return r && isNum(r.score); });
+  if (!ser.length && !isNum(K.today)) {
+    body.appendChild(el("div", "card empty-note", "体温暂无数据"));
+    return;
+  }
+  body.appendChild(tempKpis(K, T));
+  var card = el("div", "card chart-card");
+  card.style.marginTop = "12px";
+  card.appendChild(bandLegend(K.today));
+  var box = el("div");
+  box.id = "temp-chart";
+  card.appendChild(box);
+
+  var dims = el("div", "dims");
+  [["up_ratio", "上涨家数占比"], ["median", "涨跌幅中位数"], ["limit", "涨停情绪"], ["volume", "量能"], ["profit", "赚钱效应"]].forEach(function (d) {
+    var s = el("span", null, d[1]);
+    s.appendChild(el("b", null, isNum((T.dims || {})[d[0]]) ? fmtNum(T.dims[d[0]], 1) : DASH));
+    dims.appendChild(s);
+  });
+  var lead = el("div", "dims-line", "今日五个维度分项（各 0–100，等权平均）");
+  var line = el("div", "dims-line");
+  var R = T.range || {};
+  add(line,
+    el("span", "up", "涨停 " + (isNum(T.limit_up) ? T.limit_up : DASH) + " 家"), document.createTextNode(" / "),
+    el("span", "down", "跌停 " + (isNum(T.limit_down) ? T.limit_down : DASH) + " 家"),
+    document.createTextNode(" · 样本区间 " + (R.start ? fmtDateLong(R.start) : DASH) + " — " + (R.end ? fmtDateLong(R.end) : DASH) + " · 共 " + (isNum(R.n) ? R.n : DASH) + " 期"));
+  add(card, lead, dims, line);
+  body.appendChild(card);
+
+  var chart = null;
+  function draw() {
+    if (!ser.length || typeof echarts === "undefined") {
+      chart = dropChart(chart);
+      chartMsg(box, ser.length ? "图表库未加载（需联网访问 cdnjs）" : "无数据");
+      return;
+    }
+    if (!chart) { box.textContent = ""; chart = makeChart(box); }
+    if (!chart) return;
+    chart.setOption(tempOption(T, isNarrow()), true);
+    chart.resize();
+  }
+  draw();
+  onBreakpoint(draw);
+}
+
+function renderWall(body) {
+  var C = DATA.concentration || {};
+  var rows = (C.rows || []).filter(Boolean).slice().sort(function (a, b) {
+    return (isNum(b.today) ? b.today : -1) - (isNum(a.today) ? a.today : -1);
+  });
+  var h = el("div", "sub-head", "板块韭菜浓度热力墙");
+  h.appendChild(el("small", null, (C.mode || "") + (C.date ? " · " + fmtDay(C.date) : "")));
+  body.appendChild(h);
+  var card = el("div", "card");
+  var intro = el("p", "wall-intro", "口径：浓度 = Σ(买+卖)(小单+中单)成交额 ÷ Σ(买+卖)(全部四档)成交额 × 100，按板块内全部个股金额加权（非简单平均）；黑色竖刻度 = 昨日值。");
+  card.appendChild(intro);
+  var mk = el("p", "wall-intro");
+  add(mk, document.createTextNode("全市场韭菜浓度 "), el("b", null, isNum(C.market) ? fmtNum(C.market, 2) + "%" : DASH),
+    document.createTextNode("（昨 " + (isNum(C.market_yday) ? fmtNum(C.market_yday, 2) + "%" : DASH) + "）"));
+  card.appendChild(mk);
+  if (!rows.length) {
+    card.appendChild(el("div", "empty-note", "无数据"));
+    body.appendChild(card);
+    return;
+  }
+  var t = el("table", "wall");
+  var thead = el("thead"), hr = el("tr");
+  [["板块", ""], ["浓度（黑刻度 = 昨日）", "bar"], ["今日", "r"], ["环比（pp）", "r"]].forEach(function (c) {
+    hr.appendChild(el("th", c[1], c[0]));
+  });
+  thead.appendChild(hr);
+  t.appendChild(thead);
+  var tb = el("tbody");
+  rows.forEach(function (r, i) {
+    var col = COLORS[r.color] || COLORS.grey;
+    var tr = el("tr", i === 0 ? "first" : "");
+    var nm = el("td", "nm", (r.icon ? r.icon + " " : "") + (r.name || DASH));
+    nm.appendChild(el("small", null, "n=" + (isNum(r.n) ? r.n : DASH)));
+    var bar = el("td", "bar");
+    var wb = el("div", "wbar");
+    if (isNum(r.today)) {
+      var fill = el("i");
+      fill.style.width = Math.max(0, Math.min(100, r.today)) + "%";
+      fill.style.background = col;
+      wb.appendChild(fill);
+    }
+    if (isNum(r.yday)) {
+      var tick = el("u");
+      tick.style.left = "calc(" + Math.max(0, Math.min(100, r.yday)) + "% - 1px)";
+      tick.title = "昨日 " + fmtNum(r.yday, 2) + "%";
+      wb.appendChild(tick);
+    }
+    bar.appendChild(wb);
+    var pv = el("td", "r pv", isNum(r.today) ? fmtNum(r.today, 2) + "%" : DASH);
+    pv.style.color = col;
+    var cv = el("td", "r cv " + (isNum(r.chg) ? dirClass(r.chg) : "flat"), isNum(r.chg) ? fmtSigned(r.chg, 2) : "新增");
+    add(tr, nm, bar, pv, cv);
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb);
+  card.appendChild(t);
+  body.appendChild(card);
+}
+
+function renderRetail(root) {
+  var sec = makeSection("散户情绪", "市场体温（五维等权，0–100）与板块韭菜浓度");
+  root.appendChild(sec.root);                 /* attach first: charts must init on attached nodes */
+  renderTemperature(sec.body);
+  renderWall(sec.body);
 }
 
 /* ================= footer ================= */
@@ -607,16 +1217,16 @@ function renderFooter(root) {
 }
 
 /* ================= bootstrap ================= */
-/* Add new page sections by appending a renderer(root) to SECTIONS (Task 10: 国家队、散户情绪 …).
+/* Add new page sections by appending a renderer(root) to SECTIONS .
    Order = page order; the footer is always rendered last. Each renderer is isolated by try/catch. */
-var SECTIONS = [renderConclusions, renderLiquidity, renderSector];
+var SECTIONS = [renderConclusions, renderLiquidity, renderSector, renderTeam, renderRetail];
 
 (function () {
   var app = document.getElementById("app");
   if (!DATA) { app.appendChild(el("p", "muted", "未注入数据（请通过 build.py 生成页面）")); return; }
   if (DATA.meta && DATA.meta.demo) document.getElementById("demo-banner").style.display = "block";
   function safe(fn) {
-    try { fn(app); }
+    try { fn(app); flushCharts(); }
     catch (e) {
       if (window.console) console.error(e);
       app.appendChild(el("div", "card empty-note", "该部分渲染失败：" + (e && e.message ? e.message : e)));
