@@ -1,4 +1,6 @@
 tushare>=1.4
+# tushare 1.4.24 导入 six 却未声明依赖
+six
 pandas>=2.0
 numpy>=1.26
 pytest>=8.0
