@@ -55,6 +55,8 @@ def test_build_demo_end_to_end(tmp_path):
     assert data["sector_flow"]["date"] == DATE and data["sector_flow"]["day"]["inflow"]
     assert len(data["etf_flow"]["dates"]) == len(data["etf_flow"]["daily"]) == len(data["etf_flow"]["cum"])
     assert len(data["etf_flow"]["per_etf"]) == 11
+    usd = next(c for c in liq["external"] if c["key"] == "usd")
+    assert "FXCM" in usd["note"] and "DXY" in usd["note"]  # 12759 这类点位不是 DXY，须在卡片上写明
     assert len(data["fingerprint"]["groups"]) == 4
     assert data["temperature"]["series"] and data["temperature"]["kpis"]["today"] is not None
     assert data["concentration"]["date"] == DATE and len(data["concentration"]["rows"]) == 14

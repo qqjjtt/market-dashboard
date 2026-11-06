@@ -328,7 +328,7 @@ def _external(c: Ctx, start: str):
         _mk_card("reserves", "银行准备金", raw["WRESBAL"] / 1000.0, "十亿美元"),
         _mk_card("us2y", "美债2年", _ser(yields, "date", "y2"), "%"),
         _mk_card("us10y", "美债10年", _ser(yields, "date", "y10"), "%"),
-        _mk_card("usd", "美元指数", usd, "点", change="pct"),
+        _mk_card("usd", "美元指数", usd, "点", change="pct", note="FXCM 美元指数，非 DXY"),
     ]
     for code, name in config.US_INDICES:
         sub = gl[gl["ts_code"] == code] if isinstance(gl, pd.DataFrame) and "ts_code" in gl.columns else None
