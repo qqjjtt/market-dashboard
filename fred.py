@@ -34,7 +34,7 @@ class FredSource:
                 return None
             dates = pd.to_datetime(df.iloc[:, 0], errors="coerce")  # 首列叫 DATE 或 observation_date 均可
             values = pd.to_numeric(df.iloc[:, 1], errors="coerce")  # "." -> NaN
-            out = pd.Series(values.to_numpy(dtype=float), index=pd.DatetimeIndex(dates, name=None), name=series_id)
+            out = pd.Series(values.to_numpy(dtype=float), index=pd.DatetimeIndex(dates).rename(None), name=series_id)
             out = out[out.index.notna()].sort_index()
             if out.empty:
                 log.warning("FRED %s 没有可解析的日期行", series_id)

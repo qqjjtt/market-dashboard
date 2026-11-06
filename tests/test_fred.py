@@ -10,7 +10,7 @@ from fred import FredSource
 def test_fred_parses_dot_as_nan():
     s = FredSource(lambda url: "observation_date,WALCL\n2026-10-28,6745635\n2026-11-04,.\n").series("WALCL", "2026-09-01")
     assert s.iloc[0] == 6745635 and math.isnan(s.iloc[1])
-    assert s.index[0] == pd.Timestamp("2026-10-28")
+    assert s.index[0] == pd.Timestamp("2026-10-28") and s.index.name is None
     assert s.index[1] == pd.Timestamp("2026-11-04")
 
 
