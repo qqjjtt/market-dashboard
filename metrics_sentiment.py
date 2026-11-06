@@ -13,7 +13,6 @@ import config
 
 _MF_COLS = ["buy_sm_amount", "sell_sm_amount", "buy_md_amount", "sell_md_amount",
             "buy_lg_amount", "sell_lg_amount", "buy_elg_amount", "sell_elg_amount"]
-_RETAIL_COLS = _MF_COLS[:4]
 _TEMP_COLS = ["up_ratio", "median", "limit", "volume", "profit", "score"]
 MIN_VOLUME_HISTORY = 5
 
@@ -134,13 +133,16 @@ def _strip_roman(x) -> str:
 
 def match_sectors(basic: pd.DataFrame, sw: pd.DataFrame | None,
                   recent_limit_codes: set[str]) -> tuple[dict[str, set[str]], str]:
-    """板块 → 成分代码集合（含空集），以及口径名。sw 不可用（None/空）时降级为 stock_basic.industry。"""
+    """板块 → 成分代码集合（含空集），以及口径名。sw 不可用（None/空）时降级为 stock_basic.industry。
+
+    sw 口径匹配 L2/L3（L1 excluded to avoid 电力→电力设备 leakage），先去掉 Ⅰ/Ⅱ/Ⅲ 再子串匹配。
+    """
     use_sw = sw is not None and len(sw) > 0
     if use_sw:
         sw = sw[_not_bj(sw["ts_code"])]
-        levels = [[_strip_roman(v) for v in sw[c]] for c in ("l1_name", "l2_name", "l3_name")]
+        levels = [[_strip_roman(v) for v in sw[c]] for c in ("l2_name", "l3_name")]
         codes = list(sw["ts_code"])
-        labels = ["|".join(parts) for parts in zip(*levels)]  # 仅用于子串匹配，分隔符避免跨层误匹配
+        labels = ["|".join(parts) for parts in zip(*levels)]  # 仅 L2/L3；分隔符避免跨层误匹配
         label = "申万行业"
         key = "sw"
     else:
@@ -172,7 +174,8 @@ def concentration(mf: pd.DataFrame, codes: set[str] | None = None) -> float | No
     total = float(df[_MF_COLS].to_numpy(dtype=float).sum())
     if total <= 0:
         return None
-    return float(df[_RETAIL_COLS].to_numpy(dtype=float).sum() / total * 100)
+    retail = [f"{side}_{lv}_amount" for lv in config.RETAIL_LEVELS for side in ("buy", "sell")]
+    return float(df[retail].to_numpy(dtype=float).sum() / total * 100)
 
 
 def six_dim(five_score: float | None, market_conc: float | None) -> float | None:

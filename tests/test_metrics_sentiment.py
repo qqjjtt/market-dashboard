@@ -224,3 +224,15 @@ def test_kpi_short_series():
     k = temperature_kpis(s)
     assert k["today"] == 55 and k["yday"] is None and k["delta"] is None and k["delta_text"] is None
     assert temperature_kpis(s.iloc[0:0]) == {}
+
+
+def test_match_sectors_ignores_l1():
+    basic = pd.DataFrame({"ts_code": ["PV.SZ", "UT.SH"], "name": ["光伏", "电力"], "industry": ["电气设备", "火力发电"]})
+    sw = pd.DataFrame({"ts_code": ["PV.SZ", "UT.SH"],
+                       "l1_name": ["电力设备", "公用事业"],
+                       "l2_name": ["光伏设备", "电力"],
+                       "l3_name": ["光伏电池组件", "火力发电"]})
+    m, label = match_sectors(basic, sw, set())
+    assert label == "申万行业"
+    assert "PV.SZ" in m["光伏设备·组件"] and "PV.SZ" not in m["红利权重·银行"]
+    assert "UT.SH" in m["红利权重·银行"]
