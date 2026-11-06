@@ -5,25 +5,626 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A 股盘后看板</title>
 <style>
-  body { margin: 0; background: #f6f1ea; color: #333; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  #demo-banner { display: none; background: #c8402f; color: #fff; text-align: center; padding: 8px; font-weight: 600; }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  :root {
+    --bg: #f6f1ea; --card: #fffdf9; --border: #ece3d6; --track: #f1ebe2;
+    --red: #c8402f; --green: #2a9d75; --orange: #e08a2a; --blue: #2f5d8a; --grey: #8a8178;
+    --ink: #2b2723; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px; line-height: 1.5; font-variant-numeric: tabular-nums;
+    overflow-x: hidden;
+  }
+  #demo-banner { display: none; background: var(--red); color: #fff; text-align: center; padding: 8px 12px; font-weight: 600; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+  .num, .tnum { font-variant-numeric: tabular-nums; }
+  .up { color: var(--red); } .down { color: var(--green); } .flat, .muted { color: var(--grey); }
+  .t-red { --tone: var(--red); } .t-orange { --tone: var(--orange); } .t-blue { --tone: var(--blue); }
+  .t-green { --tone: var(--green); } .t-gray { --tone: var(--grey); }
+
+  /* header */
+  .page-head h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: .5px; }
+  .meta-line { display: flex; flex-wrap: wrap; gap: 6px 8px; color: var(--grey); font-size: 12.5px; }
+  .meta-line span { background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
+
+  /* conclusion strip */
+  .conclusions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0 8px; }
+  .concl {
+    background: var(--card); border: 1px solid var(--border); border-left: 5px solid var(--tone, var(--grey));
+    border-radius: var(--radius); padding: 16px 18px; min-width: 0;
+  }
+  .concl .c-title { font-size: 12.5px; color: var(--grey); margin-bottom: 6px; letter-spacing: 1px; }
+  .concl .c-text { font-size: 17px; font-weight: 700; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+  .concl .c-text div + div { margin-top: 2px; }
+  .concl .c-sub { margin-top: 8px; font-size: 12.5px; color: var(--grey); white-space: pre-line; overflow-wrap: anywhere; }
+
+  /* section */
+  section.block { margin-top: 32px; }
+  .sec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sec-head h2 { margin: 0; font-size: 20px; padding-left: 12px; border-left: 4px solid var(--red); line-height: 1.25; }
+  .sec-head .sub { margin: 4px 0 0 16px; color: var(--grey); font-size: 12.5px; }
+  .sub-head { margin: 22px 0 10px; font-size: 14.5px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .sub-head small { font-weight: 400; color: var(--grey); font-size: 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; min-width: 0; }
+
+  /* segmented toggle */
+  .seg { display: inline-flex; background: #ece7df; border-radius: 999px; padding: 3px; gap: 2px; }
+  .seg button {
+    font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--grey);
+    padding: 4px 14px; border-radius: 999px; cursor: pointer;
+  }
+  .seg button[aria-selected="true"], .seg button.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 3px rgba(60, 40, 20, .15); }
+
+  /* index strip */
+  .idx-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; padding: 6px 4px; }
+  .idx { padding: 8px 14px; border-right: 1px dashed var(--border); min-width: 0; }
+  .idx:last-child { border-right: 0; }
+  .idx .n { color: var(--grey); font-size: 12.5px; }
+  .idx .v { font-size: 20px; font-weight: 700; }
+  .idx .p { font-size: 13px; font-weight: 600; }
+
+  /* mini cards */
+  .grid-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .mini { padding: 14px 16px 10px; display: flex; flex-direction: column; min-height: 150px; }
+  .mini .top { display: flex; justify-content: space-between; gap: 6px; font-size: 12.5px; color: var(--grey); }
+  .mini .top .d { white-space: nowrap; font-size: 11.5px; }
+  .mini .val { margin-top: 6px; font-size: 26px; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+  .mini .val .u { font-size: 12px; font-weight: 400; color: var(--grey); margin-left: 3px; }
+  .mini .chg { font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+  .mini .note { font-size: 11.5px; color: var(--grey); min-height: 17px; margin-top: 2px; }
+  .mini .spark { height: 40px; margin-top: auto; }
+  .mini.empty .val { color: #b9b1a7; }
+
+  /* vote */
+  .vote-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .vote-head b { font-size: 15px; }
+  .vote-head .lab { font-weight: 700; font-size: 16px; }
+  .signals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .sig { border-top: 3px solid var(--tone, var(--grey)); background: #faf6ef; border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .sig .n { color: var(--grey); font-size: 12.5px; }
+  .sig .d { font-size: 16px; font-weight: 700; color: var(--tone, var(--grey)); }
+  .sig .x { font-size: 12px; color: var(--grey); overflow-wrap: anywhere; }
+  .rate-line { margin-top: 12px; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); font-size: 13.5px; overflow-wrap: anywhere; }
+  .rate-line b { font-weight: 700; }
+
+  /* tables / news */
+  .tbl-wrap { overflow-x: auto; }
+  table.ops { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+  table.ops th { text-align: left; color: var(--grey); font-weight: 500; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.ops td { padding: 8px 10px; border-bottom: 1px dashed var(--border); vertical-align: top; }
+  table.ops td.r, table.ops th.r { text-align: right; }
+  .empty-note { color: var(--grey); padding: 14px 4px; text-align: center; }
+  .news-tabs { margin-bottom: 8px; }
+  ul.news { list-style: none; margin: 0; padding: 0; }
+  ul.news li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 9px 2px; border-bottom: 1px dashed var(--border); }
+  ul.news li:last-child { border-bottom: 0; }
+  ul.news .tm { color: var(--grey); font-size: 12px; white-space: nowrap; }
+  ul.news .src { color: var(--blue); font-size: 12px; white-space: nowrap; }
+  ul.news .ttl { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; color: var(--ink); text-decoration: none; }
+  ul.news a.ttl:hover { text-decoration: underline; color: var(--blue); }
+  .tag { display: inline-block; font-size: 11.5px; line-height: 1.4; color: var(--orange); border: 1px solid var(--orange); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+
+  /* sector chart */
+  #sector-chart { width: 100%; }
+  .chart-msg { color: var(--grey); text-align: center; padding: 40px 0; }
+
+  /* footer */
+  footer.foot { margin-top: 36px; color: var(--grey); font-size: 12.5px; }
+  footer.foot details { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 16px; }
+  footer.foot summary { cursor: pointer; color: var(--orange); font-weight: 600; }
+  footer.foot ul { margin: 8px 0 0; padding-left: 18px; }
+  footer.foot li { overflow-wrap: anywhere; }
+  footer.foot p { margin: 12px 0 0; }
+
+  @media (max-width: 900px) {
+    .conclusions { grid-template-columns: repeat(2, 1fr); }
+    .signals { grid-template-columns: repeat(2, 1fr); }
+    .idx-strip { grid-template-columns: repeat(3, 1fr); row-gap: 6px; }
+    .idx:nth-child(3) { border-right: 0; }
+  }
+  @media (max-width: 560px) {
+    main { padding: 14px 16px 32px; }
+    .page-head h1 { font-size: 22px; }
+    .conclusions { grid-template-columns: 1fr; gap: 10px; }
+    .signals { grid-template-columns: 1fr; }
+    .idx-strip { grid-template-columns: repeat(2, 1fr); }
+    .idx:nth-child(3) { border-right: 1px dashed var(--border); }
+    .idx:nth-child(even) { border-right: 0; }
+    .grid-mini { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .mini { padding: 12px 12px 8px; }
+    .mini .val { font-size: 22px; }
+    .card { padding: 14px; }
+  }
 </style>
 </head>
 <body>
 <div id="demo-banner">当前为随机模拟数据</div>
-<main>
-  <h1>A 股盘后看板</h1>
-  <p id="meta"></p>
-  <!-- TODO(Task 9-10): 真实页面 -->
-</main>
+<main id="app"></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
 <script>
 const DATA = /*__DATA__*/null;
-(function () {
-  if (!DATA) return;
-  if (DATA.meta && DATA.meta.demo) document.getElementById("demo-banner").style.display = "block";
+
+/* ================= shared helpers ================= */
+const COLORS = { red: "#c8402f", green: "#2a9d75", orange: "#e08a2a", blue: "#2f5d8a", grey: "#8a8178", gray: "#8a8178" };
+const DASH = "—";
+
+function $(sel, root) { return (root || document).querySelector(sel); }
+/* el(tag, className, text): all external text goes through textContent */
+function el(tag, cls, text) {
+  var n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = text;
+  return n;
+}
+function add(parent) {
+  for (var i = 1; i < arguments.length; i++) if (arguments[i]) parent.appendChild(arguments[i]);
+  return parent;
+}
+function isNum(v) { return typeof v === "number" && isFinite(v); }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+  });
+}
+function fmtNum(v, d) {
+  if (!isNum(v)) return DASH;
+  return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }).replace("-", "−");
+}
+function fmtSigned(v, d) {
+  if (!isNum(v)) return DASH;
+  var s = fmtNum(Math.abs(v), d);
+  return (v > 0 ? "+" : v < 0 ? "−" : "") + s;
+}
+function autoDec(v) {
+  var a = Math.abs(v);
+  return a >= 1000 ? 0 : a >= 100 ? 1 : 2;
+}
+var UNIT_DEC = { "%": 2, "元": 3, "家": 0, "点": 2, "十亿美元": 1, "美元/桶": 2 };
+function decFor(unit, v) { return UNIT_DEC.hasOwnProperty(unit) ? UNIT_DEC[unit] : autoDec(v); }
+function dirClass(v) { return !isNum(v) || v === 0 ? "flat" : v > 0 ? "up" : "down"; }
+function arrow(v) { return !isNum(v) || v === 0 ? "" : v > 0 ? "▲ " : "▼ "; }
+function fmtDay(s) {            /* 20261106 -> 11/6 ; 202611 -> 2026年11月 */
+  if (typeof s !== "string") return "";
+  if (/^\d{8}$/.test(s)) return (+s.slice(4, 6)) + "/" + (+s.slice(6, 8));
+  if (/^\d{6}$/.test(s)) return s.slice(0, 4) + "年" + (+s.slice(4, 6)) + "月";
+  return s;
+}
+function fmtDateLong(s) {
+  return typeof s === "string" && /^\d{8}$/.test(s) ? s.slice(0, 4) + "-" + s.slice(4, 6) + "-" + s.slice(6, 8) : (s || DASH);
+}
+
+/* charts registry: every chart is created via makeChart so window resize reaches it */
+var CHARTS = [];
+function makeChart(dom) {
+  if (typeof echarts === "undefined") return null;
+  var c = echarts.init(dom, null, { renderer: "canvas" });
+  CHARTS.push(c);
+  return c;
+}
+var _rt = null;
+window.addEventListener("resize", function () {
+  clearTimeout(_rt);
+  _rt = setTimeout(function () { CHARTS.forEach(function (c) { c.resize(); }); }, 80);
+});
+window.addEventListener("load", function () { CHARTS.forEach(function (c) { c.resize(); }); });
+
+/* section skeleton: returns {root, body}; optional right-hand control */
+function makeSection(title, subtitle, control) {
+  var root = el("section", "block");
+  var head = el("div", "sec-head");
+  var left = el("div");
+  add(left, el("h2", null, title));
+  if (subtitle) left.appendChild(el("p", "sub", subtitle));
+  add(head, left, control);
+  var body = el("div");
+  add(root, head, body);
+  return { root: root, body: body };
+}
+/* segmented toggle: options [{key,label}], onChange(key) */
+function makeSegmented(options, initial, onChange) {
+  var seg = el("div", "seg");
+  seg.setAttribute("role", "tablist");
+  var btns = options.map(function (o) {
+    var b = el("button", null, o.label);
+    b.type = "button";
+    b.setAttribute("role", "tab");
+    b.addEventListener("click", function () { select(o.key, true); });
+    seg.appendChild(b);
+    return b;
+  });
+  function select(key, fire) {
+    options.forEach(function (o, i) { btns[i].setAttribute("aria-selected", o.key === key ? "true" : "false"); });
+    if (fire) onChange(key);
+  }
+  select(initial, false);
+  return seg;
+}
+function safeUrl(u) { return typeof u === "string" && /^https?:\/\//i.test(u) ? u : null; }
+
+/* ================= page header ================= */
+function renderHeader(root) {
   var m = DATA.meta || {};
-  document.getElementById("meta").textContent = "交易日 " + (m.trade_date || "—") + " · 生成 " + (m.generated_at || "—");
+  var head = el("header", "page-head");
+  head.appendChild(el("h1", null, "A 股盘后看板"));
+  var line = el("div", "meta-line");
+  [
+    "交易日 " + fmtDateLong(m.trade_date),
+    "数据截止 " + fmtDateLong(m.trade_date) + " 收盘",
+    "生成 " + (m.generated_at || DASH) + "（北京时间）",
+    "板块口径 " + (m.sector_mode || DASH),
+    "尾盘来源 " + (m.tail_source || DASH)
+  ].forEach(function (t) { line.appendChild(el("span", null, t)); });
+  head.appendChild(line);
+  root.appendChild(head);
+}
+
+/* ================= four conclusions ================= */
+function renderConclusions(root) {
+  var wrap = el("div", "conclusions");
+  (DATA.conclusions || []).forEach(function (c) {
+    var tone = ["red", "orange", "blue", "green", "gray"].indexOf(c.tone) >= 0 ? c.tone : "gray";
+    var card = el("div", "concl t-" + tone);
+    card.appendChild(el("div", "c-title", c.title || DASH));
+    var txt = el("div", "c-text");
+    var parts = c.key === "sector" && typeof c.text === "string" && c.text.indexOf("｜") >= 0 ? c.text.split("｜") : null;
+    if (parts) {
+      parts.forEach(function (p) {
+        var cls = /^\s*流入/.test(p) ? "up" : /^\s*流出/.test(p) ? "down" : "";
+        txt.appendChild(el("div", cls, p.trim()));
+      });
+    } else {
+      txt.textContent = c.text || DASH;
+    }
+    card.appendChild(txt);
+    if (c.sub) card.appendChild(el("div", "c-sub", c.sub));
+    wrap.appendChild(card);
+  });
+  root.appendChild(wrap);
+}
+
+/* ================= liquidity ================= */
+function renderIndices(parent) {
+  var strip = el("div", "card idx-strip");
+  (DATA.indices || []).forEach(function (x) {
+    var cell = el("div", "idx");
+    cell.appendChild(el("div", "n", x.name || DASH));
+    cell.appendChild(el("div", "v " + dirClass(x.pct_chg), fmtNum(x.close, 2)));
+    var pct = isNum(x.pct_chg) ? arrow(x.pct_chg) + fmtSigned(x.pct_chg, 2) + "%" : DASH;
+    cell.appendChild(el("div", "p " + dirClass(x.pct_chg), pct));
+    strip.appendChild(cell);
+  });
+  parent.appendChild(strip);
+}
+
+function sparkChart(dom, series, color) {
+  var data = (series || []).map(function (v) { return isNum(v) ? v : null; });
+  if (data.filter(isNum).length < 2) return;
+  var c = makeChart(dom);
+  if (!c) return;
+  c.setOption({
+    animation: false, silent: true,
+    grid: { left: 2, right: 2, top: 4, bottom: 2 },
+    xAxis: { type: "category", show: false, data: data.map(function (_, i) { return i; }) },
+    yAxis: { type: "value", show: false, scale: true },
+    series: [{
+      type: "line", data: data, showSymbol: false, smooth: true, connectNulls: true,
+      lineStyle: { width: 1.6, color: color },
+      areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: color + "44" }, { offset: 1, color: color + "00" }] } }
+    }]
+  });
+}
+
+function toneColor(card) {
+  if (card.tone && COLORS[card.tone]) return COLORS[card.tone];
+  var c = card.change;
+  return !isNum(c) || c === 0 ? COLORS.grey : c > 0 ? COLORS.red : COLORS.green;
+}
+
+function miniCard(card) {
+  var has = isNum(card.value);
+  var root = el("div", "card mini" + (has ? "" : " empty"));
+  var top = el("div", "top");
+  add(top, el("span", null, card.label || DASH), el("span", "d", fmtDay(card.date)));
+  root.appendChild(top);
+
+  var val = el("div", "val tnum", has ? fmtNum(card.value, decFor(card.unit, card.value)) : DASH);
+  if (has && card.unit) val.appendChild(el("span", "u", card.unit));
+  root.appendChild(val);
+
+  var cls, txt;
+  if (!has) { cls = "chg flat"; txt = ""; }
+  else if (!isNum(card.change)) { cls = "chg flat"; txt = DASH; }
+  else {
+    var pp = card.change_unit === "%" && card.unit === "%";
+    var d = pp ? 2 : decFor(card.change_unit, card.change);
+    var u = pp ? "pp" : (card.change_unit || "");
+    cls = "chg " + (card.tone && COLORS[card.tone] ? "" : dirClass(card.change));
+    txt = arrow(card.change) + fmtSigned(card.change, d) + (u === "%" || u === "pp" ? u : " " + u);
+  }
+  var chg = el("div", cls, txt);
+  if (has && card.tone && COLORS[card.tone]) chg.style.color = COLORS[card.tone];
+  root.appendChild(chg);
+
+  root.appendChild(el("div", "note", has ? (card.note || "") : (card.note || "无数据")));
+  var sp = el("div", "spark");
+  root.appendChild(sp);
+  if (has) sparkChart(sp, card.spark, toneColor(card));
+  return root;
+}
+
+function cardGrid(cards) {
+  var g = el("div", "grid-mini");
+  (cards || []).forEach(function (c) { g.appendChild(miniCard(c)); });
+  return g;
+}
+
+function renderVote(parent, vote) {
+  if (!vote) return;
+  var wrap = el("div", "card");
+  var head = el("div", "vote-head");
+  var lab = vote.label || DASH;
+  var labCls = lab === "偏松" ? "up" : lab === "偏紧" ? "down" : "muted";
+  add(head, el("b", null, "国内流动性投票"), el("span", "tnum", "合计 " + fmtSigned(vote.score, 0)), el("span", "lab " + labCls, lab));
+  wrap.appendChild(head);
+  var grid = el("div", "signals");
+  (vote.signals || []).forEach(function (s) {
+    var tone = s.dir === 1 ? "red" : s.dir === -1 ? "green" : "gray";
+    var cell = el("div", "sig t-" + tone);
+    cell.appendChild(el("div", "n", s.name || DASH));
+    var word = s.dir === 1 ? "↑ 松" : s.dir === -1 ? "↓ 紧" : s.dir === 0 ? "→ 中性" : DASH + " 缺失";
+    cell.appendChild(el("div", "d", word));
+    cell.appendChild(el("div", "x", s.detail || ""));
+    grid.appendChild(cell);
+  });
+  wrap.appendChild(grid);
+  parent.appendChild(wrap);
+}
+
+function renderRate(parent, r) {
+  if (!r) return;
+  var line = el("div", "rate-line");
+  var pct = function (v) { return isNum(v) ? fmtNum(v, 2) + "%" : DASH; };
+  var diff = isNum(r.diff_bp) ? fmtSigned(r.diff_bp, 1) + "bp" : DASH;
+  var lab = r.label || DASH;
+  var cls = /降息/.test(lab) ? "up" : /加息/.test(lab) ? "down" : "muted";
+  add(line,
+    el("span", null, "联邦基金有效利率 "), el("b", "tnum", pct(r.effective)),
+    el("span", null, " · 30 天期货隐含 "), el("b", "tnum", pct(r.implied)),
+    el("span", null, " · 隐含 − 有效 "), el("b", "tnum", diff),
+    el("span", null, " · "), el("b", cls, lab));
+  parent.appendChild(line);
+}
+
+function renderPolicyOps(parent, rows) {
+  var card = el("div", "card");
+  if (!rows || !rows.length) {
+    card.appendChild(el("div", "empty-note", "待手工补充 · data/policy_ops.csv"));
+    parent.appendChild(card);
+    return;
+  }
+  var wrap = el("div", "tbl-wrap");
+  var t = el("table", "ops");
+  var thead = el("thead"), tr = el("tr");
+  [["日期", ""], ["工具", ""], ["金额（亿元）", "r"], ["累计（亿元）", "r"], ["来源", ""], ["备注", ""]].forEach(function (h) {
+    tr.appendChild(el("th", h[1], h[0]));
+  });
+  thead.appendChild(tr);
+  t.appendChild(thead);
+  var tb = el("tbody");
+  rows.forEach(function (r) {
+    var row = el("tr");
+    row.appendChild(el("td", null, r.date || DASH));
+    row.appendChild(el("td", null, r.tool || DASH));
+    row.appendChild(el("td", "r tnum", isNum(r.amount) ? fmtNum(r.amount, 1) : DASH));
+    row.appendChild(el("td", "r tnum", isNum(r.cum) ? fmtNum(r.cum, 1) : DASH));
+    var src = el("td");
+    var u = safeUrl(r.url);
+    if (u) {
+      var a = el("a", null, "来源");
+      a.href = u; a.target = "_blank"; a.rel = "noopener noreferrer";
+      src.appendChild(a);
+    } else src.textContent = DASH;
+    row.appendChild(src);
+    row.appendChild(el("td", "muted", r.note || ""));
+    tb.appendChild(row);
+  });
+  t.appendChild(tb);
+  wrap.appendChild(t);
+  card.appendChild(wrap);
+  parent.appendChild(card);
+}
+
+function newsTime(s) {          /* "2026-11-06 15:53:49" -> "11-06 15:53" */
+  if (typeof s !== "string") return "";
+  var m = s.match(/^\d{4}-(\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  return m ? m[1] + " " + m[2] : s;
+}
+function renderNews(parent, news) {
+  news = news || {};
+  var tabs = [{ key: "domestic", label: "国内政策" }, { key: "external", label: "外围" }];
+  tabs.forEach(function (t) { t.label += "（" + ((news[t.key] || []).length) + "）"; });
+  var card = el("div", "card");
+  var list = el("ul", "news");
+  function show(key) {
+    list.textContent = "";
+    var items = news[key] || [];
+    if (!items.length) {
+      var li = el("li"); li.appendChild(el("div", "empty-note", "近 7 日无匹配新闻"));
+      li.style.justifyContent = "center";
+      list.appendChild(li);
+      return;
+    }
+    items.forEach(function (n) {
+      var li = el("li");
+      add(li, el("span", "tm", newsTime(n.time)), el("span", "src", n.src || ""));
+      var u = safeUrl(n.url), ttl;
+      if (u) { ttl = el("a", "ttl", n.title || DASH); ttl.href = u; ttl.target = "_blank"; ttl.rel = "noopener noreferrer"; }
+      else ttl = el("span", "ttl", n.title || DASH);
+      li.appendChild(ttl);
+      if (n.flag) li.appendChild(el("span", "tag", "疑似新操作 · 请核对"));
+      list.appendChild(li);
+    });
+  }
+  var seg = makeSegmented(tabs, "domestic", show);
+  seg.classList.add("news-tabs");
+  add(card, seg, list);
+  show("domestic");
+  parent.appendChild(card);
+}
+
+function renderLiquidity(root) {
+  var L = DATA.liquidity || {};
+  var sec = makeSection("流动性", "国内资金面为主，外围美元流动性与加减息预期仅作参考");
+  var b = sec.body;
+  renderIndices(b);
+
+  b.appendChild(el("div", "sub-head", "国内 · 场内资金"));
+  b.appendChild(cardGrid(L.domestic));
+  b.appendChild(el("div", "sub-head", "国内 · 宏观 / 价格"));
+  b.appendChild(cardGrid(L.macro));
+  b.appendChild(el("div", "sub-head", "国内流动性投票"));
+  renderVote(b, L.vote);
+
+  var ext = el("div", "sub-head", "外围 · 美元流动性与加减息");
+  ext.appendChild(el("small", null, "仅作参考，不参与国内投票；FRED 周频数据滞后数日属正常"));
+  b.appendChild(ext);
+  b.appendChild(cardGrid(L.external));
+  renderRate(b, L.rate_expect);
+
+  var po = el("div", "sub-head", "政策工具操作");
+  po.appendChild(el("small", null, "手工维护 data/policy_ops.csv，不从新闻自动提取金额"));
+  b.appendChild(po);
+  renderPolicyOps(b, DATA.policy_ops);
+
+  var nw = el("div", "sub-head", "新闻时间线");
+  nw.appendChild(el("small", null, "最近 7 个自然日 · 按关键词过滤"));
+  b.appendChild(nw);
+  renderNews(b, DATA.news);
+  root.appendChild(sec.root);
+}
+
+/* ================= sector money flow ================= */
+function renderSector(root) {
+  var S = DATA.sector_flow || {};
+  var mode = "day";
+  var seg = makeSegmented([{ key: "day", label: "当日" }, { key: "d5", label: "近 5 日累计" }], "day", function (k) { mode = k; draw(); });
+  var sec = makeSection("板块资金流向",
+    "同花顺行业口径 · 净额 = 主动买入 − 主动卖出，单位亿元" + (S.date ? " · 截至 " + fmtDay(S.date) : ""), seg);
+  var card = el("div", "card");
+  var box = el("div");
+  box.id = "sector-chart";
+  card.appendChild(box);
+  sec.body.appendChild(card);
+  root.appendChild(sec.root);
+
+  var chart = null;
+  function rowsFor(k) {
+    var g = (S[k] || {});
+    var seen = {};   /* inflow/outflow lists can overlap when fewer than 20 industries exist */
+    return (g.inflow || []).concat(g.outflow || []).filter(function (r) {
+      if (!r || !isNum(r.net) || seen[r.name]) return false;
+      seen[r.name] = true;
+      return true;
+    }).sort(function (a, b) { return b.net - a.net; });
+  }
+  function draw() {
+    var rows = rowsFor(mode);
+    if (!rows.length || typeof echarts === "undefined") {
+      if (chart) { chart.dispose(); CHARTS.splice(CHARTS.indexOf(chart), 1); chart = null; }
+      box.style.height = "auto";
+      box.textContent = "";
+      box.appendChild(el("div", "chart-msg", rows.length ? "图表库未加载（需联网访问 cdnjs）" : "无数据"));
+      return;
+    }
+    if (!chart) { box.textContent = ""; }
+    var narrow = window.innerWidth <= 560;
+    var rowH = narrow ? 34 : 30;
+    box.style.height = (rows.length * rowH + 30) + "px";
+    if (!chart) chart = makeChart(box);
+    var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.net); })) || 1;
+    var lim = maxAbs * 1.28;
+    chart.setOption({
+      animation: true,
+      grid: { left: narrow ? 78 : 112, right: 10, top: 6, bottom: 22 },
+      tooltip: {
+        trigger: "axis", axisPointer: { type: "shadow" },
+        formatter: function (ps) {
+          var r = rows[ps[0].dataIndex];
+          return esc(r.name) + "<br>净额 " + esc(fmtSigned(r.net, 2)) + " 亿" +
+            (isNum(r.pct) ? "<br>涨跌幅 " + esc(fmtSigned(r.pct, 2)) + "%" : "");
+        }
+      },
+      xAxis: { type: "value", min: -lim, max: lim, splitNumber: 4,
+        axisLabel: { color: "#8a8178", fontSize: 11, formatter: function (v) { return v === 0 ? "0" : fmtNum(v, 0); } },
+        splitLine: { lineStyle: { color: "#f1ebe2" } }, axisLine: { show: false } },
+      yAxis: { type: "category", inverse: true, data: rows.map(function (r) { return r.name; }),
+        axisLine: { onZero: false, show: false }, axisTick: { show: false },
+        axisLabel: {
+          interval: 0, margin: 8, color: "#2b2723", fontSize: 12, lineHeight: 15,
+          formatter: function (v, i) {
+            var r = rows[i], p = r && isNum(r.pct) ? fmtSigned(r.pct, 2) + "%" : DASH;
+            var pc = !isNum(r && r.pct) || r.pct === 0 ? "g" : r.pct > 0 ? "u" : "d";
+            return "{n|" + v + "}\n{" + pc + "|" + p + "}";
+          },
+          rich: {
+            n: { fontSize: 12, color: "#2b2723", align: "right" },
+            u: { fontSize: 11, color: COLORS.red, align: "right" },
+            d: { fontSize: 11, color: COLORS.green, align: "right" },
+            g: { fontSize: 11, color: COLORS.grey, align: "right" }
+          }
+        } },
+      series: [{
+        type: "bar", barWidth: narrow ? 14 : 16,
+        data: rows.map(function (r) {
+          return { value: r.net, itemStyle: { color: r.net >= 0 ? COLORS.red : COLORS.green, borderRadius: r.net >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] },
+            label: { position: r.net >= 0 ? "right" : "left" } };
+        }),
+        label: { show: true, color: "#2b2723", fontSize: 11.5, formatter: function (p) { return fmtSigned(p.value, 1); } }
+      }]
+    }, true);
+    chart.resize();
+  }
+  draw();
+}
+
+/* ================= footer ================= */
+function renderFooter(root) {
+  var foot = el("footer", "foot");
+  var w = (DATA.meta && DATA.meta.warnings) || [];
+  if (w.length) {
+    var d = el("details");
+    d.appendChild(el("summary", null, "数据告警（" + w.length + " 条）"));
+    var ul = el("ul");
+    w.forEach(function (t) { ul.appendChild(el("li", null, String(t))); });
+    d.appendChild(ul);
+    foot.appendChild(d);
+  }
+  foot.appendChild(el("p", null, "数据来源：tushare、FRED 公开数据；仅供复盘参考，不构成投资建议。"));
+  root.appendChild(foot);
+}
+
+/* ================= bootstrap ================= */
+/* Add new page sections by appending a renderer(root) to SECTIONS (Task 10: 国家队、散户情绪 …).
+   Order = page order; the footer is always rendered last. Each renderer is isolated by try/catch. */
+var SECTIONS = [renderConclusions, renderLiquidity, renderSector];
+
+(function () {
+  var app = document.getElementById("app");
+  if (!DATA) { app.appendChild(el("p", "muted", "未注入数据（请通过 build.py 生成页面）")); return; }
+  if (DATA.meta && DATA.meta.demo) document.getElementById("demo-banner").style.display = "block";
+  function safe(fn) {
+    try { fn(app); }
+    catch (e) {
+      if (window.console) console.error(e);
+      app.appendChild(el("div", "card empty-note", "该部分渲染失败：" + (e && e.message ? e.message : e)));
+    }
+  }
+  safe(renderHeader);
+  SECTIONS.forEach(safe);
+  safe(renderFooter);
 })();
 </script>
 </body>
