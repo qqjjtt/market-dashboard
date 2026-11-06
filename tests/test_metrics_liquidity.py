@@ -402,3 +402,24 @@ def test_filter_news_drops_null_or_empty_pub_time():
     d = filter_news(df, KD, KE)
     assert [n["title"] for n in d["domestic"]] == ["央行有消息E"]
     assert all(n["time"] not in ("nan", "None", "") for n in d["domestic"] + d["external"])
+
+
+def test_load_policy_ops_gbk_file_returns_empty_with_warning(tmp_path, caplog):
+    p = tmp_path / "gbk.csv"
+    p.write_bytes("date,tool,amount_yi,cum_yi,url,note\n2026-10-20,证券基金保险公司互换便利,500,1000,u,首批\n".encode("gbk"))
+    with caplog.at_level("WARNING"):
+        assert load_policy_ops(str(p)) == []
+    msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert len(msgs) == 1 and "gbk.csv" in msgs[0] and "UnicodeDecodeError" in msgs[0]
+
+
+def test_filter_news_keeps_timestamp_pub_time_as_string():
+    rows = [
+        (pd.Timestamp("2026-11-05 10:00:00"), "x", "央行有消息T", "u"),
+        ("2026-11-04 09:00:00", "x", "央行有消息S", "u"),
+        (pd.NaT, "x", "央行有消息N", "u"),
+    ]
+    df = pd.DataFrame(rows, columns=["pub_time", "src", "title", "url"])
+    d = filter_news(df, KD, KE)
+    assert [n["title"] for n in d["domestic"]] == ["央行有消息T", "央行有消息S"]
+    assert d["domestic"][0]["time"] == "2026-11-05 10:00:00" and isinstance(d["domestic"][0]["time"], str)

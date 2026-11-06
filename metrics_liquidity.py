@@ -217,9 +217,11 @@ def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]
     is_dom, is_ext = _matcher(kw_domestic), _matcher(kw_external)
 
     d = df.copy()
-    d = d[d["pub_time"].map(lambda v: isinstance(v, str) and v.strip() != "")]
+    # 丢弃 None/NaN 与空白时间；其余（含 Timestamp 等非 str）统一转 str，避免混合类型排序报错
+    d = d[d["pub_time"].map(lambda v: not pd.isna(v) and str(v).strip() != "")]
     if d.empty:
         return out
+    d["pub_time"] = d["pub_time"].map(lambda v: str(v).strip())
     d = d.sort_values("pub_time", ascending=False, kind="stable")
     seen = set()
     for r in d.itertuples(index=False):
@@ -258,32 +260,31 @@ def load_policy_ops(path: str) -> list[dict]:
 
     输出行 {date, tool, amount, cum, url, note}：amount / cum 来自 amount_yi / cum_yi（亿元，float）。
     空值 → None；整行为空跳过；只有表头 → []。
-    不抛异常（页面不能因一处坏输入崩）：文件缺失 → [] 并 WARNING；
+    不抛异常（页面不能因一处坏输入崩）：文件缺失 / 编码错误（如 Excel 存成 GBK）/ CSV 格式错误 → [] 并 WARNING；
     某个数字非数字 / 非有限 → 该字段 None 并 WARNING（含文件与行号），整行保留。
     """
     rows = []
     try:
-        fh = open(path, newline="", encoding="utf-8-sig")
-    except OSError as e:
-        log.warning("policy_ops 读取失败 %s: %s", path, e)
+        with open(path, newline="", encoding="utf-8-sig") as fh:
+            for lineno, raw in enumerate(csv.DictReader(fh), start=2):
+                vals = {c: (raw.get(c) or "").strip() or None for c in _POLICY_COLS}
+                if all(v is None for v in vals.values()):
+                    continue
+                nums = {}
+                for src_col, out_col in (("amount_yi", "amount"), ("cum_yi", "cum")):
+                    v = vals[src_col]
+                    if v is not None:
+                        try:
+                            v = float(v)
+                            if not math.isfinite(v):
+                                raise ValueError
+                        except ValueError:
+                            log.warning("policy_ops %s:%d 列 %s 不是有效数字: %r，置为空", path, lineno, src_col, v)
+                            v = None
+                    nums[out_col] = v
+                rows.append({"date": vals["date"], "tool": vals["tool"], "amount": nums["amount"],
+                             "cum": nums["cum"], "url": vals["url"], "note": vals["note"]})
+    except (UnicodeDecodeError, csv.Error, OSError) as e:
+        log.warning("policy_ops 读取失败 %s: %s: %s", path, type(e).__name__, e)
         return []
-    with fh:
-        for lineno, raw in enumerate(csv.DictReader(fh), start=2):
-            vals = {c: (raw.get(c) or "").strip() or None for c in _POLICY_COLS}
-            if all(v is None for v in vals.values()):
-                continue
-            nums = {}
-            for src_col, out_col in (("amount_yi", "amount"), ("cum_yi", "cum")):
-                v = vals[src_col]
-                if v is not None:
-                    try:
-                        v = float(v)
-                        if not math.isfinite(v):
-                            raise ValueError
-                    except ValueError:
-                        log.warning("policy_ops %s:%d 列 %s 不是有效数字: %r，置为空", path, lineno, src_col, v)
-                        v = None
-                nums[out_col] = v
-            rows.append({"date": vals["date"], "tool": vals["tool"], "amount": nums["amount"],
-                         "cum": nums["cum"], "url": vals["url"], "note": vals["note"]})
     return rows
