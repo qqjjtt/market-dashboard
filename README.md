@@ -31,6 +31,10 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 - 日志用 `logging`：INFO 打印结果，WARNING 记录缺失数据与降级；所有 WARNING 会汇总进页面数据 `meta.warnings`。
 - 任何单个数据源或面板失败，只在对应位置显示「无数据 / 待披露 / 无分钟数据」，整页不崩，退出码仍为 0。
+- **整体取数失败是唯一的致命情况**：交易日历取不到，或候选开市日的全市场日线全为空（典型：token 无效、tushare 整体不可用）→ 记 ERROR、**退出码 3、不写输出文件**；tushare 返回含 `token` 的错误（如「token不对」）立即失败、不重试。CI 因此不会部署，Pages 上保留上一份好页面。（`2` = 数据源初始化失败，如缺 `TUSHARE_TOKEN`，同样不写文件。）
+- 「交易日回退」（当天日线还没出，退到上一个开市日）若发生在预期内（开市日 17:00 前，或 `--date` 不是开市日），只记 INFO，不进页面的警告列表；其余情况记 WARNING。
+- 页头结论里的板块流向、韭菜浓度若不是交易日 D 当天的数据，卡片上会标「（截至 M/D）」；浓度不是 D 当天时，六维体温留空。大盘条里个别指数日期晚于 D 时，指数下方有「截至 M/D」小标。
+- 新闻时间线区分三种状态：取数失败 →「新闻取数失败（接口配额或错误），稍后自动重试」；只取到一部分 →「仅覆盖 M/D HH:MM 起」；取完但无匹配 →「近 7 日无匹配新闻」（payload 里是 `news.status` = `failed` / `partial` / `ok` 与 `news.since`）。
 - 缺失值保持空值，**绝不补 0**，也不为了好看去填补缺失日期。
 - 测试：`.venv/bin/python -m pytest -q`。
 - **接口配额（本账号实测，调试时务必留意）**：
@@ -38,6 +42,32 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
   - `major_news`：「40次/天、30次/小时」。新闻按时间向前翻页（每页最多 800 行），单次构建最多调用 `config.NEWS_MAX_CALLS`（8）次，每天 3 次构建共 24 次，给手动运行留余量；用完预算、撞到配额或某页重试后仍失败，就只保留已取到的最新部分并记 WARNING，因此新闻时间线覆盖的天数取决于当天的新闻量与剩余配额。
   - 小时 / 天配额类的「频率超限」不会重试（重试没有意义）。反复调试请避免频繁完整构建。
 - 在浏览器里看本机产物时，建议 `cd site && python3 -m http.server 8000` 再打开 `http://localhost:8000`。
+
+## 部署与定时
+
+代码公开，产物由 GitHub Actions 定时构建并发布到 GitHub Pages（`.github/workflows/build.yml`）。
+
+**一次性设置（仓库网页上）**
+
+1. Settings → Secrets and variables → Actions → 新增 Repository secret `TUSHARE_TOKEN`（token 只在 CI 的环境变量里，不进日志与页面）。
+2. Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
+3. Actions 页手动点一次 `build`（`workflow_dispatch`）确认成功，Pages 地址能从外网打开。
+
+**三次定时运行（北京时间，周二至周六 / 周一至周五，cron 用 UTC）**
+
+| 时间 | cron（UTC） | 主要补齐的内容 |
+|---|---|---|
+| 16:30（周一至周五） | `30 8 * * 1-5` | 日线、成交指纹、外盘、新闻先出；两融、龙虎榜、资金流等可能还没出 |
+| 20:30（周一至周五） | `30 12 * * 1-5` | 资金流、板块流向、韭菜浓度、沪深 300 补齐（尾盘分钟线通常此时才有，但受 `stk_mins` 限频，见上文） |
+| 次日 09:30（**周二至周六**） | `30 1 * * 2-6` | ETF 份额回填（深交所份额晚一天披露）、两融前一日数据；周六这一次补的是周五，所以是周二至周六而不是周一至周五 |
+
+每次都是整页重建，取「数据已就绪的最新交易日」；非交易日照常跑，内容不变。GitHub cron 高峰期可能延迟十几分钟到一小时。build job 超时 30 分钟，deploy job 10 分钟；`pages: write` / `id-token: write` 只授予 deploy job。
+
+**退出码与部署**：构建退出码 3（整体取数失败，见上文「运行」）会让 build job 失败，deploy job 不会运行，Pages 上保持上一份好页面；之后下一次定时运行会自动重试。看到 Actions 里 build 红了，先看日志里的 ERROR：多半是 token 失效或 tushare 不可用。
+
+**60 天无活动会停掉定时任务**：GitHub 会在公开仓库 60 天没有任何仓库活动（push、PR 等）后自动停用定时（`schedule`）工作流。恢复方法：仓库 Actions 页 → 左侧选 `build` → 点页面上的 **Enable workflow**（或随手提交一次改动再手动 Run workflow）。建议每个月左右有一次提交，或手动运行一次。
+
+**launchd 兜底只在 Actions 连不上 tushare 时才需要**（海外机房 IP 被限等）：此时改为本机 macOS `launchd` 在同样三个时间运行 `build.py`，再把 `site/index.html` 推到 Pages 分支，代价是那三个时间点 Mac 需要开机联网。Actions 能正常取数就不要用这个方案。
 
 ## 各面板口径
 
@@ -65,14 +95,14 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 ### 板块资金流向
 
 - 数据：`moneyflow_ind_ths`（同花顺 90 个行业），`net_amount` 单位亿元；净额 = 主动买入 − 主动卖出（按 tushare 文档口径）。
-- 横向发散条形图：净流入前 10（红）+ 净流出前 10（绿），可切换「当日 / 近 5 日累计」。
+- 横向发散条形图：净流入前 10（红）+ 净流出前 10（绿），可切换「当日 / 近 N 日累计」，N 为实际累计的交易日数（数据不足 5 日时小于 5，payload 里是 `sector_flow.d5.days`）。
 
 ### 国家队（ETF）
 
 - **单只 ETF 当日净申赎（亿元）= (当日份额 − 前一日份额) × 当日收盘价**，份额单位亿份（`fund_share` 原值万份）。合计用 `sum(min_count=1)`。
 - **80% 披露规则**：某天成分 ETF 中已披露份额的占比 < 80%，整天标「待披露」，不当作 0、更不当作净赎回（深交所份额常晚一天披露）。
 - **本轮累计**取固定 29 只宽基 ETF；**国家队**取沪市 11 只核心。
-- **70%—90% 的国家队归因比例只是假设情景，不是事实、不是公开数据**，页面上均有注明。
+- **70%—90% 的国家队归因比例（`config.ATTRIBUTION`，页面据 `round.attribution` 显示）只是假设情景，不是事实、不是公开数据**，页面上均有注明。
 - 成交指纹：核心五通道 / 宽基十只 / 行业对照六只 / 全部十六只的今昨成交额对比；尾盘占比 = **510300 一只**（代表，不是核心五通道合计）14:30 之后的成交额占全天比例，来自 `stk_mins`，无权限 / 限频则显示「无分钟数据」，有数据时来源标为「stk_mins·510300」。成交降温不等于净赎回，方向要等份额回填才能确定。
 
 ### 散户情绪

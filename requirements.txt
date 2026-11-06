@@ -1,6 +1,6 @@
-tushare>=1.4
-# tushare 1.4.24 导入 six 却未声明依赖
-six
-pandas>=2.0
-numpy>=1.26
-pytest>=8.0
+tushare==1.4.29
+# tushare 1.4.29 导入 six 却未声明依赖
+six==1.17.0
+pandas==3.1.1
+numpy==2.5.4
+pytest==9.2.0
