@@ -64,6 +64,7 @@
   .idx .n { color: var(--grey); font-size: 12.5px; }
   .idx .v { font-size: 20px; font-weight: 700; }
   .idx .p { font-size: 13px; font-weight: 600; }
+  .idx .d { display: inline-block; margin-top: 2px; padding: 0 6px; border-radius: 8px; background: var(--border); color: var(--grey); font-size: 11px; line-height: 17px; }
 
   /* mini cards */
   .grid-mini { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
@@ -403,6 +404,8 @@ function renderIndices(parent) {
     cell.appendChild(el("div", "v " + dirClass(x.pct_chg), fmtNum(x.close, 2)));
     var pct = isNum(x.pct_chg) ? arrow(x.pct_chg) + fmtSigned(x.pct_chg, 2) + "%" : DASH;
     cell.appendChild(el("div", "p " + dirClass(x.pct_chg), pct));
+    var td = (DATA.meta || {}).trade_date;
+    if (typeof x.date === "string" && x.date && td && x.date !== td) cell.appendChild(el("span", "d", "截至 " + fmtDay(x.date)));
     strip.appendChild(cell);
   });
   parent.appendChild(strip);
@@ -557,11 +560,17 @@ function renderNews(parent, news) {
   tabs.forEach(function (t) { t.label += "（" + ((news[t.key] || []).length) + "）"; });
   var card = el("div", "card");
   var list = el("ul", "news");
+  var cov = null;
+  if (news.status === "partial") {
+    var sm = typeof news.since === "string" ? news.since.match(/^\d{4}-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/) : null;
+    cov = el("div", "sub-line", "仅覆盖 " + (sm ? (+sm[1]) + "/" + (+sm[2]) + " " + sm[3] + " 起" : "部分时段") + "（接口配额或错误，下次构建会补全）");
+  }
   function show(key) {
     list.textContent = "";
     var items = news[key] || [];
     if (!items.length) {
-      var li = el("li"); li.appendChild(el("div", "empty-note", "近 7 日无匹配新闻"));
+      var li = el("li"); li.appendChild(el("div", "empty-note", news.status === "failed"
+        ? "新闻取数失败（接口配额或错误），稍后自动重试" : "近 7 日无匹配新闻"));
       li.style.justifyContent = "center";
       list.appendChild(li);
       return;
@@ -579,7 +588,7 @@ function renderNews(parent, news) {
   }
   var seg = makeSegmented(tabs, "domestic", show);
   seg.classList.add("news-tabs");
-  add(card, seg, list);
+  add(card, seg, cov, list);
   show("domestic");
   parent.appendChild(card);
 }
@@ -619,7 +628,8 @@ function renderLiquidity(root) {
 function renderSector(root) {
   var S = DATA.sector_flow || {};
   var mode = "day";
-  var seg = makeSegmented([{ key: "day", label: "当日" }, { key: "d5", label: "近 5 日累计" }], "day", function (k) { mode = k; draw(); });
+  var nd = S.d5 && isNum(S.d5.days) && S.d5.days > 0 ? S.d5.days : 5;   /* 实际累计的交易日数 */
+  var seg = makeSegmented([{ key: "day", label: "当日" }, { key: "d5", label: "近 " + nd + " 日累计" }], "day", function (k) { mode = k; draw(); });
   var sec = makeSection("板块资金流向",
     "同花顺行业口径 · 净额 = 主动买入 − 主动卖出，单位亿元" + (S.date ? " · 截至 " + fmtDay(S.date) : ""), seg);
   var card = el("div", "card");
@@ -830,7 +840,9 @@ function roundCard() {
   sub.appendChild(el("b", dirClass(R.total), isNum(R.total) ? fmtSigned(R.total, 1) + " 亿元" : DASH));
   var rest = "。";
   if (isNum(R.low) && isNum(R.high) && isNum(R.mid)) {
-    rest = "；按 70%—90% 归因情景，疑似国家队回补约 " + fmtNum(R.low, 0) + "—" + fmtNum(R.high, 0) + " 亿（中值 " + fmtNum(R.mid, 0) + " 亿）。归因比例为假设，非公开数据。";
+    var ar = R.attribution, pctTxt = Array.isArray(ar) && ar.length === 2 && isNum(ar[0]) && isNum(ar[1])
+      ? Math.round(ar[0] * 100) + "%—" + Math.round(ar[1] * 100) + "%" : "假设比例";
+    rest = "；按 " + pctTxt + " 归因情景，疑似国家队回补约 " + fmtNum(R.low, 0) + "—" + fmtNum(R.high, 0) + " 亿（中值 " + fmtNum(R.mid, 0) + " 亿）。归因比例为假设，非公开数据。";
   }
   sub.appendChild(document.createTextNode(rest));
   card.appendChild(sub);

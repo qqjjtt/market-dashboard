@@ -1,7 +1,9 @@
 """构建入口：解析参数 → 交易日判定 → 取数编排 → 组装 payload → 渲染单文件 HTML。
 
 降级原则：任何单个数据源 / 面板失败只在局部留空并记 WARNING（汇总进 payload.meta.warnings），
-构建不中断、退出码 0。token 只从环境变量 TUSHARE_TOKEN 读取，日志与页面里不出现。
+构建不中断、退出码 0。唯一的致命情况是「整体取数失败」：交易日历取不到，或候选开市日的日线全为空
+（典型：token 无效、接口整体不可用）——此时记 ERROR、退出码 3、不写输出文件，
+让 CI 不部署、保留上一份好页面。token 只从环境变量 TUSHARE_TOKEN 读取，日志与页面里不出现。
 """
 from __future__ import annotations
 
@@ -25,6 +27,11 @@ from render import render
 from summary import build_conclusions, signed
 
 log = logging.getLogger("build")
+
+
+class FatalBuildError(Exception):
+    """整体取数失败（交易日历 / 日线全无）：不应生成页面覆盖上一份好页面。"""
+
 
 SH = ZoneInfo("Asia/Shanghai")
 ROOT = Path(__file__).resolve().parent
@@ -158,23 +165,34 @@ def resolve_date(arg: str | None, now: datetime | None = None) -> str:
     return now.strftime("%Y%m%d")
 
 
-def _resolve_trade_day(src, date: str, daily: dict) -> str:
-    """D = ≤ date 的最近开市日中 stock_daily 非空的最新一个（最多回看 3 个开市日）。"""
+def _fallback_is_expected(date: str, now: datetime) -> bool:
+    """「当天日线还没出」属预期：北京时间 date 当日 17:00 之前（含早于 date 的时刻）。"""
+    return (now.strftime("%Y%m%d"), now.hour) < (date, 17)
+
+
+def _resolve_trade_day(src, date: str, daily: dict, now: datetime | None = None) -> str:
+    """D = ≤ date 的最近开市日中 stock_daily 非空的最新一个（最多回看 3 个开市日）。
+
+    交易日历取不到 / 为空，或候选日的日线全为空 → FatalBuildError（整体取数失败，调用方不得写输出）。
+    """
+    now = (now or datetime.now(SH)).astimezone(SH)
     try:
         cand = list(src.trade_days(date, 3))
     except Exception as e:  # noqa: BLE001
-        log.warning("交易日历获取失败（%s: %s），按 %s 处理", type(e).__name__, _short(e), date)
-        cand = []
+        raise FatalBuildError(f"交易日历获取失败（{type(e).__name__}: {_short(e)}）") from e
+    if not cand:
+        raise FatalBuildError("交易日历为空，无法确定交易日")
     for d in reversed(cand):
         df = _fetch(f"{_md(d)} 全市场日线", src.stock_daily, d)
         if isinstance(df, pd.DataFrame) and not df.empty:
             daily[d] = df
             if d != cand[-1]:
-                log.warning("交易日回退：%s 日线未出，使用 %s", _md(cand[-1]), _md(d))
+                # 预期内的回退：退到前一个开市日，且 date 不是开市日，或是开市日但还没到 17:00
+                expected = d == cand[-2] and (cand[-1] != date or _fallback_is_expected(date, now))
+                log.log(logging.INFO if expected else logging.WARNING,
+                        "交易日回退：%s 日线未出，使用 %s", _md(cand[-1]), _md(d))
             return d
-    D = cand[-1] if cand else date
-    log.warning("最近 3 个开市日日线均为空，交易日按 %s 处理，依赖日线的面板将留空", _md(D))
-    return D
+    raise FatalBuildError(f"最近 {len(cand)} 个开市日（{_md(cand[0])}–{_md(cand[-1])}）全市场日线均为空")
 
 
 def _range_latest(label: str, fn, start: str, ends: list[str]):
@@ -202,14 +220,15 @@ def _indices(c: Ctx) -> list[dict]:
     out = []
     start = c.days[max(0, len(c.days) - 10)] if c.days else c.D
     for code, name in config.A_INDICES:
-        close = pct = None
+        close = pct = date = None
         df = _fetch(f"指数 {name}", c.src.index_daily, code, start, c.D)
         s = _ser(df, "trade_date", "close")
         p = _ser(df, "trade_date", "pct_chg")
         if len(s):
             close = float(s.iloc[-1])
             pct = _num(p.get(s.index[-1]))
-        out.append({"code": code, "name": name, "close": close, "pct_chg": pct})
+            date = str(s.index[-1])
+        out.append({"code": code, "name": name, "close": close, "pct_chg": pct, "date": date})
     return out
 
 
@@ -418,7 +437,9 @@ def _sentiment(c: Ctx) -> dict:
             "limit_up": lim_up,
             "limit_down": lim_dn,
             "range": {"start": str(win.index[0]), "end": str(win.index[-1]), "n": int(len(win))},
-            "six_dim": ms.six_dim(_num(row["score"]), out["market"]),
+            # 六维 = 五维 + 全市场浓度：只有两者同为 D 当日才合成，否则留空（不把不同日的数混在一起）
+            "six_dim": ms.six_dim(_num(row["score"]),
+                                  out["market"] if out["concentration"].get("date") == D else None),
         }
         return t, kpis
 
@@ -502,7 +523,7 @@ def _tail_ratios(c: Ctx, yday: str | None):
 def _default_etf():
     return {"etf_flow": {"dates": [], "daily": [], "cum": [], "index_close": [], "per_etf": []},
             "round": {"count": 0, "start": None, "end": None, "total": None, "low": None, "high": None,
-                      "mid": None, "last3": []},
+                      "mid": None, "last3": [], "attribution": [float(x) for x in config.ATTRIBUTION]},
             "monthly": [],
             "fingerprint": {"date": None, "groups": [], "tail": {"today": None, "yday": None, "source": "无分钟数据"},
                             "conclusion": {"big": None, "small": "", "text": ""}, "footnote": ""},
@@ -576,18 +597,26 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
                     for code in config.SH11 if code in share_w.columns],
     }
 
-    # --- 成交指纹
+    # --- 成交指纹（尾盘占比与指纹各自兜底：任何一块失败都不能拖垮上面已算好的国家队净申赎）
     prev = [d for d in all_days if d < D]
     yday = prev[-1] if prev else None
+    out["fingerprint"] = _safe("成交指纹", lambda: _fingerprint(c, closes, all_days, yday),
+                               lambda: _default_etf()["fingerprint"])
+    out["tail_source"] = out["fingerprint"]["tail"]["source"]
+    return out
+
+
+def _fingerprint(c: Ctx, closes: dict, all_days: list[str], yday: str | None) -> dict:
+    D = c.D
     amount_w = _wide(closes, "amount", all_days)
     groups_def = {CORE5_NAME: config.CORE5, BROAD10_NAME: config.BROAD10, IND6_NAME: config.INDUSTRY6,
                   ALL16_NAME: config.BROAD10 + config.INDUSTRY6}
     groups = me.amount_groups(amount_w, D, yday or "", groups_def)
     g = {x["name"]: x for x in groups}
     core_chg = g[CORE5_NAME]["chg_pct"]
-    tail = _tail_ratios(c, yday)
-    out["tail_source"] = tail["source"]
-    out["fingerprint"] = {
+    tail = _safe("尾盘占比", lambda: _tail_ratios(c, yday),
+                 {"today": None, "yday": None, "source": "无分钟数据"})
+    return {
         "date": D,
         "groups": groups,
         "tail": tail,
@@ -596,7 +625,6 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
                        "text": me.fingerprint_conclusion(g[BROAD10_NAME]["chg_pct"], g[IND6_NAME]["chg_pct"])},
         "footnote": me.ratio_footnote(groups),
     }
-    return out
 
 
 # ------------------------------------------------------------------ 新闻
@@ -606,8 +634,21 @@ def _news(c: Ctx, date: str) -> dict:
     start = end - timedelta(days=config.NEWS_DAYS)
     fmt = "%Y-%m-%d %H:%M:%S"
     df = _fetch("新闻", c.src.major_news, start.strftime(fmt), end.strftime(fmt))
-    return ml.filter_news(df if isinstance(df, pd.DataFrame) else pd.DataFrame(),
-                          config.NEWS_KW_DOMESTIC, config.NEWS_KW_EXTERNAL)
+    out = ml.filter_news(df if isinstance(df, pd.DataFrame) else pd.DataFrame(),
+                         config.NEWS_KW_DOMESTIC, config.NEWS_KW_EXTERNAL)
+    # 取数覆盖：区分「取数失败 / 只覆盖了一部分」与「真的没有匹配新闻」
+    status, since = "failed", None
+    if df is not None:
+        try:
+            cov = c.src.last_news_coverage()
+            status, since = cov.get("status"), cov.get("since")
+        except Exception as e:  # noqa: BLE001
+            log.warning("新闻覆盖信息获取失败（%s: %s）", type(e).__name__, _short(e))
+            status = "ok"
+        if status not in ("ok", "partial", "failed"):
+            status, since = "ok", None
+    out["status"], out["since"] = status, since
+    return out
 
 
 # ------------------------------------------------------------------ 组装
@@ -628,7 +669,7 @@ def collect(src, fred, date: str, round_start: str | None, demo: bool, now: date
 
 def _collect(src, fred, date, round_start, demo, now) -> dict:
     daily: dict = {}
-    D = _resolve_trade_day(src, date, daily)
+    D = _resolve_trade_day(src, date, daily, now)
     n_days = config.TEMP_WINDOW + config.AMOUNT_MA + 2
     try:
         days = list(src.trade_days(D, n_days))
@@ -656,14 +697,15 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
                    lambda: {"date": None, "day": _empty_rank(), "d5": _empty_rank()})
     sent = _safe("散户情绪", lambda: _sentiment(c), _default_sentiment)
     etf = _safe("ETF", lambda: _etf(c, round_start), _default_etf)
-    news = _safe("新闻", lambda: _news(c, date), lambda: {"domestic": [], "external": []})
+    news = _safe("新闻", lambda: _news(c, date), lambda: {"domestic": [], "external": [], "status": "failed", "since": None})
     indices = _safe("指数", lambda: _indices(c), list)
     policy = _safe("政策工具表", lambda: ml.load_policy_ops(str(POLICY_CSV)), list)
 
     fed_card = next((x for x in liquidity["external"] if x["key"] == "fed_net"), {})
     conclusions = _safe("结论条", lambda: build_conclusions(
         liquidity["vote"], liquidity["rate_expect"], fed_card, sector["day"], etf["team_last3"], etf["team_asof"],
-        etf["round_total"], sent["kpis"], sent["market"], sent["market_yday"]), list)
+        etf["round_total"], sent["kpis"], sent["market"], sent["market_yday"],
+        trade_date=D, sector_date=sector.get("date"), conc_date=sent["concentration"].get("date")), list)
 
     return {
         "meta": {"trade_date": D, "generated_at": now.strftime("%Y-%m-%d %H:%M"), "demo": bool(demo),
@@ -709,7 +751,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001
         log.error("数据源初始化失败（%s: %s）", type(e).__name__, _short(e))
         return 2
-    payload = collect(src, fred, date, args.round_start, args.demo)
+    try:
+        payload = collect(src, fred, date, args.round_start, args.demo)
+    except FatalBuildError as e:
+        log.error("整体取数失败，不生成页面（保留上一份）：%s", _scrub(str(e)))
+        return 3
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     render(str(TEMPLATE), payload, args.out)
     ws = payload["meta"]["warnings"]

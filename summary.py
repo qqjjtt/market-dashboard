@@ -71,13 +71,22 @@ def _liquidity_card(vote: dict, rate_expect: dict, fed_card: dict) -> dict:
     return _card("liquidity", "流动性", text, f"{line1}\n{line2}", tone)
 
 
-def _sector_card(sector_day: dict) -> dict:
+def _stale(date: str | None, trade_date: str | None) -> str | None:
+    """面板日期与交易日 D 不同 → 返回「M/D」；同日或任一缺失 → None。"""
+    return _md(date) if date and trade_date and date != trade_date else None
+
+
+def _sector_card(sector_day: dict, sector_date: str | None = None, trade_date: str | None = None) -> dict:
     inflow = [r["name"] for r in (sector_day or {}).get("inflow", [])[:3]]
     outflow = [r["name"] for r in (sector_day or {}).get("outflow", [])[:3]]
     if not inflow and not outflow:
         return _card("sector", "板块流向", "暂无板块资金流向数据", "同花顺行业口径", "gray")
     text = f"流入：{'、'.join(inflow) or '—'} ｜ 流出：{'、'.join(outflow) or '—'}"
-    return _card("sector", "板块流向", text, "同花顺行业 · 当日净额前三 / 后三", "blue")
+    sub = "同花顺行业 · 当日净额前三 / 后三"
+    stale = _stale(sector_date, trade_date)
+    if stale:
+        sub += f"（截至 {stale}）"
+    return _card("sector", "板块流向", text, sub, "blue")
 
 
 def _team_card(team_last3: list[float], team_asof: str | None, round_total: float | None) -> dict:
@@ -111,7 +120,8 @@ def _band(t: float) -> str:
     return "冰冷"
 
 
-def _retail_card(temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None) -> dict:
+def _retail_card(temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None,
+                 conc_date: str | None = None, trade_date: str | None = None) -> dict:
     today = (temp_kpis or {}).get("today")
     if not _ok(today):
         return _card("retail", "散户情绪", "体温暂无数据", "五维口径", "gray")
@@ -119,6 +129,9 @@ def _retail_card(temp_kpis: dict, market_conc: float | None, market_conc_yday: f
         conc = f"浓度 {market_conc:.1f}%"
         if _ok(market_conc_yday):
             conc += f"（{signed(market_conc - market_conc_yday)}pp）"
+        stale = _stale(conc_date, trade_date)  # 体温是 D 当日，浓度晚于它时必须说明
+        if stale:
+            conc += f"（浓度截至 {stale}）"
     else:
         conc = "浓度 —"
     tone = "red" if today >= 60 else "orange" if today >= 40 else "blue"
@@ -129,14 +142,19 @@ def _retail_card(temp_kpis: dict, market_conc: float | None, market_conc_yday: f
 
 def build_conclusions(vote: dict, rate_expect: dict, fed_card: dict, sector_day: dict,
                       team_last3: list[float], team_asof: str | None, round_total: float | None,
-                      temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None) -> list[dict]:
+                      temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None,
+                      trade_date: str | None = None, sector_date: str | None = None,
+                      conc_date: str | None = None) -> list[dict]:
     """四张结论卡（流动性 / 板块流向 / 国家队 / 散户情绪）。
+
+    trade_date = 交易日 D；sector_date / conc_date 为板块流向 / 韭菜浓度各自的数据日期，
+    与 D 不同时在对应卡片上注明「（截至 M/D）」，避免把旧数据当成当天的。
 
     流动性卡的 sub 含两行（\\n 分隔）：信号方向行 + 外围一句。
     """
     return [
         _liquidity_card(vote, rate_expect, fed_card),
-        _sector_card(sector_day),
+        _sector_card(sector_day, sector_date, trade_date),
         _team_card(team_last3, team_asof, round_total),
-        _retail_card(temp_kpis, market_conc, market_conc_yday),
+        _retail_card(temp_kpis, market_conc, market_conc_yday, conc_date, trade_date),
     ]

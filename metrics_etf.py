@@ -69,12 +69,13 @@ def round_summary(daily: pd.Series, start: str, attribution: tuple[float, float]
     return {
         "count": count,
         "start": start,
-        "end": str(s.index[-1]) if len(s) else None,
+        "end": str(vals.index[-1]) if len(vals) else None,  # 最后一个有数据的日子（不被末尾待披露日拖成空）
         "total": total,
         "low": low,
         "high": high,
         "mid": mid,
         "last3": last3,
+        "attribution": [float(lo_r), float(hi_r)],  # 归因比例（假设），页面据此显示「70%—90%」
     }
 
 

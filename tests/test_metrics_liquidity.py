@@ -234,7 +234,14 @@ def test_sector_flow_rank_5d():
     assert r["inflow"][0]["net"] == pytest.approx(5.0)
     assert [x["name"] for x in r["outflow"]] == ["C", "B", "A"]
     assert r["inflow"][0]["pct"] == pytest.approx(0.5)  # pct 取 end 当日
+    assert r["days"] == 5
     assert r["inflow"][1]["pct"] == pytest.approx(2.2)
+
+
+def test_sector_flow_rank_days_is_actual_number_summed():
+    r = sector_flow_rank(_flow_df(), "20261030", 5)  # 只有 2 个交易日 ≤ 20261030
+    assert r["days"] == 2
+    assert sector_flow_rank(_flow_df(), "20261105", 1)["days"] == 1
 
 
 def test_sector_flow_rank_1d_and_top():

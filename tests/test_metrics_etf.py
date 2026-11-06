@@ -67,6 +67,14 @@ def test_round_summary_attribution():
     assert r["last3"][0] == {"date": "20261105", "value": 40.0}
     assert r["last3"][2] == {"date": "20261103", "value": 60.0}
     assert r["count"] == 29 and r["start"] == "20261103" and r["end"] == "20261105"
+    assert r["attribution"] == [0.7, 0.9]
+
+
+def test_round_summary_end_is_last_non_nan_day():
+    s = pd.Series([60.0, 40.0, np.nan], index=["20261103", "20261104", "20261105"])
+    r = round_summary(s, "20261103", (0.7, 0.9), 29)
+    assert r["end"] == "20261104" and r["total"] == 100.0
+    assert r["last3"][0] == {"date": "20261105", "value": None}  # 最近三日仍如实列出待披露日
 
 
 def test_round_summary_start_slices_and_all_nan():
@@ -75,7 +83,7 @@ def test_round_summary_start_slices_and_all_nan():
     assert r["total"] == pytest.approx(6.0) and r["start"] == "20261102"
     assert [x["date"] for x in r["last3"]] == ["20261104", "20261103", "20261102"]
     n = round_summary(pd.Series([np.nan, np.nan], index=["20261103", "20261104"]), "20261103", (0.7, 0.9), 2)
-    assert n["total"] is None and n["low"] is None and n["high"] is None and n["mid"] is None
+    assert n["total"] is None and n["low"] is None and n["high"] is None and n["mid"] is None and n["end"] is None
     e = round_summary(pd.Series([], dtype=float), "20261103", (0.7, 0.9), 0)
     assert e["total"] is None and e["last3"] == [] and e["end"] is None
 

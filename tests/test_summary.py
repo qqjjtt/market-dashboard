@@ -78,3 +78,16 @@ def test_retail_card():
     assert "浓度 —" in c["text"] and c["tone"] == "blue"
     c = by_key(conclusions(temp_kpis={}))["retail"]
     assert c["tone"] == "gray" and "体温暂无数据" in c["text"]
+
+
+def test_staleness_labels_only_when_panel_date_differs():
+    same = by_key(conclusions(trade_date="20261106", sector_date="20261106", conc_date="20261106"))
+    assert "截至" not in same["sector"]["sub"] and "浓度截至" not in same["retail"]["text"]
+    old = by_key(conclusions(trade_date="20261106", sector_date="20261105", conc_date="20261104"))
+    assert "（截至 11/5）" in old["sector"]["sub"]
+    assert "浓度截至 11/4" in old["retail"]["text"]
+    # 日期缺失（面板无数据）→ 不乱标
+    none = by_key(conclusions(trade_date="20261106", sector_date=None, conc_date=None))
+    assert "截至" not in none["sector"]["sub"] and "浓度截至" not in none["retail"]["text"]
+    # 旧调用方式（不传日期）保持原样
+    assert by_key(conclusions())["retail"]["text"] == "体温 71.2（温暖）· 浓度 65.3%（+1.2pp）"

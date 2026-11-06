@@ -1,8 +1,10 @@
 import json
+import logging
 import re
 from datetime import datetime, timezone
 
 import pandas as pd
+import pytest
 
 import build
 from build import main, resolve_date
@@ -246,3 +248,174 @@ def test_temperature_limit_counts_fallback_to_approx_with_warning(tmp_path, monk
     t = data["temperature"]
     assert isinstance(t["limit_up"], int) and isinstance(t["limit_down"], int)
     assert any("涨跌停精确家数缺失" in w for w in data["meta"]["warnings"])
+
+
+# ---------------------------------------------------------------- C1：整体失败不得覆盖旧页面
+
+class AllDownSource(DemoSource):
+    """日线对每个候选日都为空（如 token 失效后每个接口都取不到）。"""
+    def stock_daily(self, trade_date):
+        raise RuntimeError("down")
+
+
+class NoCalendarSource(DemoSource):
+    def trade_days(self, end, n):
+        raise RuntimeError("calendar down")
+
+
+class EmptyCalendarSource(DemoSource):
+    def trade_days(self, end, n):
+        return []
+
+
+class EmptyDailySource(DemoSource):
+    def stock_daily(self, trade_date):
+        return super().stock_daily(trade_date).iloc[0:0]
+
+
+@pytest.mark.parametrize("cls", [AllDownSource, NoCalendarSource, EmptyCalendarSource, EmptyDailySource])
+def test_total_failure_exits_3_and_writes_nothing(tmp_path, monkeypatch, caplog, cls):
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (cls(), DemoFred()))
+    out = tmp_path / "site" / "i.html"
+    with caplog.at_level(logging.ERROR, logger="build"):
+        assert main(["--demo", "--out", str(out), "--date", DATE]) == 3
+    assert not out.exists()
+    assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_total_failure_keeps_previous_page(tmp_path, monkeypatch):
+    out = tmp_path / "i.html"
+    out.write_text("LAST GOOD PAGE", encoding="utf-8")
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (EmptyDailySource(), DemoFred()))
+    assert main(["--demo", "--out", str(out), "--date", DATE]) == 3
+    assert out.read_text(encoding="utf-8") == "LAST GOOD PAGE"
+
+
+def test_partial_failure_still_exits_0(tmp_path, monkeypatch):
+    run(tmp_path, BrokenSource(), monkeypatch=monkeypatch)  # run() 断言退出码 0
+
+
+# ---------------------------------------------------------------- M1：回退日志级别
+
+SH_TZ = build.SH
+
+
+def _fallback_records(caplog, now):
+    caplog.clear()
+    daily = {}
+    with caplog.at_level(logging.INFO, logger="build"):
+        d = build._resolve_trade_day(NotReadyDailySource(), DATE, daily, now)
+    return d, [r for r in caplog.records if "交易日回退" in r.getMessage()]
+
+
+def test_fallback_morning_is_info(caplog):
+    d, recs = _fallback_records(caplog, datetime(2026, 11, 6, 9, 30, tzinfo=SH_TZ))
+    assert d == "20261105" and len(recs) == 1 and recs[0].levelno == logging.INFO
+
+
+def test_fallback_after_17_is_warning(caplog):
+    d, recs = _fallback_records(caplog, datetime(2026, 11, 6, 20, 30, tzinfo=SH_TZ))
+    assert d == "20261105" and len(recs) == 1 and recs[0].levelno == logging.WARNING
+
+
+def test_info_fallback_not_collected_as_warning(tmp_path, monkeypatch):
+    now = datetime(2026, 11, 6, 9, 30, tzinfo=SH_TZ)
+    payload = build.collect(NotReadyDailySource(), DemoFred(), DATE, None, True, now=now)
+    assert payload["meta"]["trade_date"] == "20261105"
+    assert not any("交易日回退" in w for w in payload["meta"]["warnings"])
+
+
+# ---------------------------------------------------------------- I2：头条日期标注
+
+def test_headline_stale_labels_and_six_dim(tmp_path, monkeypatch):
+    _, data = run(tmp_path, NotReadySource(), monkeypatch=monkeypatch)
+    cs = {c["key"]: c for c in data["conclusions"]}
+    sd, cd = data["sector_flow"]["date"], data["concentration"]["date"]
+    assert sd != DATE and cd != DATE
+    assert f"截至 {int(sd[4:6])}/{int(sd[6:])}" in cs["sector"]["sub"]
+    assert f"浓度截至 {int(cd[4:6])}/{int(cd[6:])}" in cs["retail"]["text"]
+    assert data["temperature"]["six_dim"] is None  # 浓度不是 D 当日，不合成六维
+
+
+def test_headline_same_day_has_no_stale_label_and_six_dim(tmp_path):
+    _, data = run(tmp_path)
+    cs = {c["key"]: c for c in data["conclusions"]}
+    assert "截至" not in cs["sector"]["sub"] and "浓度截至" not in cs["retail"]["text"]
+    assert data["temperature"]["six_dim"] is not None
+
+
+# ---------------------------------------------------------------- I3：新闻覆盖
+
+class FailedNews(DemoSource):
+    def major_news(self, start_dt, end_dt, max_calls=None):
+        return super().major_news(start_dt, end_dt).iloc[0:0]
+
+    def last_news_coverage(self):
+        return {"status": "failed", "since": None}
+
+
+class PartialNews(DemoSource):
+    def last_news_coverage(self):
+        return {"status": "partial", "since": "2026-11-04 08:30:00"}
+
+
+class RaisingNews(DemoSource):
+    def major_news(self, start_dt, end_dt, max_calls=None):
+        raise RuntimeError("boom")
+
+
+def test_news_status_ok(tmp_path):
+    _, data = run(tmp_path)
+    assert data["news"]["status"] == "ok" and data["news"]["since"] is None
+
+
+def test_news_status_failed_and_partial(tmp_path, monkeypatch):
+    _, data = run(tmp_path, FailedNews(), monkeypatch=monkeypatch)
+    assert data["news"]["status"] == "failed" and data["news"]["domestic"] == []
+    _, data = run(tmp_path, PartialNews(), monkeypatch=monkeypatch)
+    assert data["news"]["status"] == "partial" and data["news"]["since"] == "2026-11-04 08:30:00"
+    assert data["news"]["domestic"]
+
+
+def test_news_status_failed_when_source_raises(tmp_path, monkeypatch):
+    _, data = run(tmp_path, RaisingNews(), monkeypatch=monkeypatch)
+    assert data["news"]["status"] == "failed" and data["news"]["external"] == []
+
+
+# ---------------------------------------------------------------- I4：尾盘 / 指纹失败不连坐
+
+class MalformedMinutes(DemoSource):
+    def etf_minutes(self, code, start, end):
+        return pd.DataFrame({"foo": [1, 2], "amount": [1.0, 2.0]})  # 缺 trade_time 列
+
+
+def test_tail_failure_does_not_wipe_national_team_block(tmp_path, monkeypatch):
+    _, data = run(tmp_path, MalformedMinutes(), monkeypatch=monkeypatch)
+    assert data["etf_flow"]["dates"] and data["round"]["count"] == 29 and len(data["monthly"]) == 6
+    fp = data["fingerprint"]
+    assert fp["tail"] == {"today": None, "yday": None, "source": "无分钟数据"}
+    assert fp["groups"] and data["meta"]["tail_source"] == "无分钟数据"
+    assert any("尾盘占比" in w for w in data["meta"]["warnings"])
+
+
+def test_fingerprint_failure_keeps_flow_block(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise ValueError("bad groups")
+    monkeypatch.setattr(build.me, "amount_groups", boom)
+    _, data = run(tmp_path, monkeypatch=monkeypatch)
+    assert data["etf_flow"]["dates"] and data["round"]["count"] == 29 and len(data["monthly"]) == 6
+    assert data["fingerprint"]["groups"] == [] and data["fingerprint"]["tail"]["source"] == "无分钟数据"
+    assert any("成交指纹" in w for w in data["meta"]["warnings"])
+
+
+# ---------------------------------------------------------------- M3 / M5 / M7 additive keys
+
+def test_indices_carry_date(tmp_path):
+    _, data = run(tmp_path)
+    assert all(x["date"] == DATE for x in data["indices"])
+
+
+def test_round_attribution_and_sector_days_in_payload(tmp_path):
+    _, data = run(tmp_path)
+    assert data["round"]["attribution"] == [0.7, 0.9]
+    assert data["sector_flow"]["d5"]["days"] == 5 and data["sector_flow"]["day"]["days"] == 1
