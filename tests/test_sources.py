@@ -413,6 +413,23 @@ def test_major_news_quota_error_returns_partial_without_retry(caplog):
     assert any("配额" in r.getMessage() for r in caplog.records)
 
 
+def test_major_news_source_error_keeps_partial_pages(caplog):
+    """第 2 页重试耗尽（SourceError，非配额）→ 保留第 1 页并 WARNING，不抛。"""
+    inner, st = _news_pro(_rows(2000))
+
+    def fake(start_date, end_date, fields=None):
+        if len(st["calls"]) >= 1:
+            st["calls"].append("down")
+            raise Exception("timeout")
+        return inner.apis["major_news"](start_date, end_date, fields)
+
+    src, slept = make(FakePro(major_news=fake))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        df = src.major_news("2026-11-05 00:00:00", "2026-11-05 23:59:59")
+    assert len(df) == 800 and slept == [2, 4, 8]
+    assert any("取数失败" in r.getMessage() and "仅覆盖" in r.getMessage() for r in caplog.records)
+
+
 def test_major_news_quota_error_before_any_data_returns_empty():
     pro = FakePro(major_news=Exception("抱歉，您访问接口(major_news)频率超限(40次/天)，具体频次详情"))
     src, slept = make(pro)

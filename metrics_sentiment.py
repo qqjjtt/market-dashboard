@@ -135,14 +135,16 @@ def match_sectors(basic: pd.DataFrame, sw: pd.DataFrame | None,
                   recent_limit_codes: set[str]) -> tuple[dict[str, set[str]], str]:
     """板块 → 成分代码集合（含空集），以及口径名。sw 不可用（None/空）时降级为 stock_basic.industry。
 
-    sw 口径匹配 L2/L3（L1 excluded to avoid 电力→电力设备 leakage），先去掉 Ⅰ/Ⅱ/Ⅲ 再子串匹配。
+    sw 口径：先去掉 Ⅰ/Ⅱ/Ⅲ，再要求关键词与 L2 或 L3 名称**完全相等**（不用 L1，也不做子串匹配，
+    否则「白酒」会命中「非白酒」、「电池」会命中「光伏电池组件」「电池化学品」等）。
     """
     use_sw = sw is not None and len(sw) > 0
     if use_sw:
         sw = sw[_not_bj(sw["ts_code"])]
-        levels = [[_strip_roman(v) for v in sw[c]] for c in ("l2_name", "l3_name")]
+        l2 = [_strip_roman(v) for v in sw["l2_name"]]
+        l3 = [_strip_roman(v) for v in sw["l3_name"]]
         codes = list(sw["ts_code"])
-        labels = ["|".join(parts) for parts in zip(*levels)]  # 仅 L2/L3；分隔符避免跨层误匹配
+        labels = list(zip(l2, l3))
         label = "申万行业"
         key = "sw"
     else:
@@ -157,7 +159,11 @@ def match_sectors(basic: pd.DataFrame, sw: pd.DataFrame | None,
             out[sec["name"]] = {c for c in recent_limit_codes if not str(c).upper().endswith(".BJ")}
             continue
         kws = sec[key]
-        out[sec["name"]] = {c for c, lab in zip(codes, labels) if any(k in lab for k in kws)}
+        if use_sw:
+            kwset = set(kws)
+            out[sec["name"]] = {c for c, names in zip(codes, labels) if kwset.intersection(names)}
+        else:
+            out[sec["name"]] = {c for c, lab in zip(codes, labels) if any(k in lab for k in kws)}
     return out, label
 
 

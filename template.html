@@ -668,7 +668,8 @@ function renderSector(root) {
         }
       },
       xAxis: { type: "value", min: -lim, max: lim, splitNumber: 4,
-        axisLabel: { color: "#8a8178", fontSize: 11, formatter: function (v) { return v === 0 ? "0" : fmtNum(v, 0); } },
+        axisLabel: { color: "#8a8178", fontSize: 11, hideOverlap: true, showMinLabel: false, showMaxLabel: false,
+          formatter: function (v) { return v === 0 ? "0" : fmtNum(v, 0); } },
         splitLine: { lineStyle: { color: "#f1ebe2" } }, axisLine: { show: false } },
       yAxis: { type: "category", inverse: true, data: rows.map(function (r) { return r.name; }),
         axisLine: { onZero: false, show: false }, axisTick: { show: false },
@@ -912,8 +913,8 @@ function fingerprintCard() {
   });
   var T = F.tail || {};
   var li = el("li");
-  var nm = el("span", "nm", "尾盘占比");
-  nm.appendChild(el("small", null, "核心五通道 14:30 后成交 ÷ 全天"));
+  var nm = el("span", "nm", "尾盘占比（510300 代表）");
+  nm.appendChild(el("small", null, "仅 510300 一只 14:30 后成交 ÷ 全天"));
   var vl = el("span", "vl");
   var noTail = !isNum(T.today) && !isNum(T.yday);
   if (noTail || T.source === "无分钟数据") {

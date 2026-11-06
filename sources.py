@@ -326,7 +326,7 @@ class TushareSource:
         从 end_dt 起向前翻页：每页取 [start_dt, 当前终点]，满 800 行就把终点挪到该页最早一条的时间继续，
         不足 800 行即窗口取完；按 title 去重、pub_time 升序返回。
         账号限额 major_news 40 次/天、30 次/小时，所以调用数以 max_calls（缺省 config.NEWS_MAX_CALLS）封顶：
-        用完预算或撞到配额，就返回已取到的（最新的）部分并记 WARNING，不抛异常。"""
+        用完预算、撞到配额或某页重试后仍失败（SourceError），就返回已取到的（最新的）部分并记 WARNING，不抛异常。"""
         cols = ["pub_time", "src", "title", "url"]
         max_calls = config.NEWS_MAX_CALLS if max_calls is None else max_calls
         s, e = datetime.strptime(start_dt, _NEWS_FMT), datetime.strptime(end_dt, _NEWS_FMT)
@@ -337,6 +337,10 @@ class TushareSource:
                                fields="title,pub_time,src,url")
             except RateLimited:
                 log.warning("major_news 接口配额用尽（账号 40 次/天、30 次/小时），新闻%s",
+                            f"仅覆盖 {cur.strftime(_NEWS_FMT)} 之后" if frames else "留空")
+                return self._news_result(frames, cols)
+            except SourceError as e:  # 重试后仍失败：保留已取到的页，不让后面的页拖垮前面的
+                log.warning("major_news 取数失败（%s），新闻%s", type(e.__cause__ or e).__name__,
                             f"仅覆盖 {cur.strftime(_NEWS_FMT)} 之后" if frames else "留空")
                 return self._news_result(frames, cols)
             calls += 1

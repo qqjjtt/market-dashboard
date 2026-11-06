@@ -144,6 +144,7 @@ class Ctx:
     names: dict = field(default_factory=dict)
     flags: dict = field(default_factory=dict)   # trade_date -> limit_flags DataFrame
     now: datetime = None
+    exact_limits: dict = field(default_factory=dict)   # trade_date -> {"up","down"}（limit_list_d 精确值），每日只取一次
 
 
 # ------------------------------------------------------------------ 日期
@@ -244,6 +245,14 @@ def _inst_series(src, days: list[str]) -> pd.Series:
     return pd.Series(vals, dtype=float).sort_index()
 
 
+def _exact_limits(c: Ctx, d: str) -> dict:
+    """limit_list_d 的精确涨跌停家数 {up, down}（取不到 → 均为 None）；每个交易日只调用一次。"""
+    if d not in c.exact_limits:
+        lc = _fetch(f"涨跌停家数 {_md(d)}", c.src.limit_counts, d)
+        c.exact_limits[d] = lc if isinstance(lc, dict) else {"up": None, "down": None}
+    return c.exact_limits[d]
+
+
 def _liquidity(c: Ctx) -> dict:
     src, D = c.src, c.D
     start = c.days[0]
@@ -265,8 +274,8 @@ def _liquidity(c: Ctx) -> dict:
     approx_dn = pd.Series({d: float(f["down_limit"].sum()) for d, f in c.flags.items()}, dtype=float).sort_index()
     down = int(approx_dn[D]) if D in approx_dn.index else None
     for d in [x for x in c.days if x < D][-1:] + [D]:
-        lc = _fetch(f"涨跌停家数 {_md(d)}", src.limit_counts, d)
-        if isinstance(lc, dict) and lc.get("up") is not None:
+        lc = _exact_limits(c, d)
+        if lc.get("up") is not None:
             approx_up[d] = float(lc["up"])
             if d == D and lc.get("down") is not None:
                 down = int(lc["down"])
@@ -395,12 +404,19 @@ def _sentiment(c: Ctx) -> dict:
         win = ser.tail(config.TEMP_WINDOW)
         row = ser.iloc[-1]
         f = c.flags.get(D)
+        # 展示的涨停/跌停家数用 limit_list_d 精确值（与流动性卡片同口径）；五维分仍用涨跌幅近似（PROMPT §4.1）
+        ex = _exact_limits(c, D)
+        lim_up, lim_dn = ex.get("up"), ex.get("down")
+        if lim_up is None or lim_dn is None:
+            log.warning("涨跌停精确家数缺失，市场体温面板的涨停/跌停回退为按涨跌幅近似判定")
+            lim_up = int(f["up_limit"].sum()) if f is not None else None
+            lim_dn = int(f["down_limit"].sum()) if f is not None else None
         t = {
             "series": [{"date": str(d), "score": _num(v)} for d, v in win["score"].items()],
             "kpis": kpis,
             "dims": {k: _num(row[k]) for k in ("up_ratio", "median", "limit", "volume", "profit")},
-            "limit_up": int(f["up_limit"].sum()) if f is not None else None,
-            "limit_down": int(f["down_limit"].sum()) if f is not None else None,
+            "limit_up": lim_up,
+            "limit_down": lim_dn,
             "range": {"start": str(win.index[0]), "end": str(win.index[-1]), "n": int(len(win))},
             "six_dim": ms.six_dim(_num(row["score"]), out["market"]),
         }
@@ -456,38 +472,30 @@ def _wide(frames: dict, col: str, index: list[str]) -> pd.DataFrame:
 
 
 def _tail_ratios(c: Ctx, yday: str | None):
-    """核心五通道尾盘占比：每只一次 etf_minutes(yday→D)；任一次返回 None 即停止调用（疑似小时限额）。"""
+    """尾盘占比：stk_mins 账号限额 1 次/小时，所以只用一只代表 ETF（config.TAIL_CODE）、一次 etf_minutes(yday→D)。
+    返回 None（无权限/限频）→ 「无分钟数据」。"""
     D = c.D
+    code = config.TAIL_CODE
     res = {"today": None, "yday": None, "source": "无分钟数据"}
-    frames = {}
-    for code in config.CORE5:
-        try:
-            df = c.src.etf_minutes(code, yday or D, D)
-        except Exception as e:  # noqa: BLE001
-            log.warning("分钟线 %s 获取失败（%s: %s）", code, type(e).__name__, _short(e))
-            df = None
-        if df is None:
-            log.warning("分钟线 %s 无权限或频率受限，停止调用 stk_mins，尾盘占比留空", code)
-            break
-        frames[code] = df
-    if len(frames) < len(config.CORE5):
+    try:
+        df = c.src.etf_minutes(code, yday or D, D)
+    except Exception as e:  # noqa: BLE001
+        log.warning("分钟线 %s 获取失败（%s: %s）", code, type(e).__name__, _short(e))
+        df = None
+    if df is None:
+        log.warning("分钟线 %s 无权限或频率受限（stk_mins 账号限额 1 次/小时），尾盘占比留空", code)
         return res
     for key, day in (("today", D), ("yday", yday)):
         if not day:
             continue
         prefix = f"{day[:4]}-{day[4:6]}-{day[6:]}"
-        parts, complete = [], True
-        for code, df in frames.items():
-            sub = df[df["trade_time"].astype(str).str[:10] == prefix] if len(df) else df
-            if len(sub) == 0:
-                complete = False
-                log.warning("分钟线 %s 缺 %s 数据，该日尾盘占比留空", code, _md(day))
-                break
-            parts.append(sub)
-        if complete:
-            res[key] = me.tail_ratio(pd.concat(parts, ignore_index=True), config.TAIL_START)
+        sub = df[df["trade_time"].astype(str).str[:10] == prefix] if len(df) else df
+        if len(sub) == 0:
+            log.warning("分钟线 %s 缺 %s 数据，该日尾盘占比留空", code, _md(day))
+            continue
+        res[key] = me.tail_ratio(sub, config.TAIL_START)
     if res["today"] is not None or res["yday"] is not None:
-        res["source"] = "stk_mins"
+        res["source"] = f"stk_mins·{code.split('.')[0]}"
     return res
 
 

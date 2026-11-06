@@ -18,13 +18,14 @@ RECENT_LIMIT_UP_DAYS = 5
 TEMP_WINDOW = 30
 AMOUNT_MA = 20
 TAIL_START = "14:30"
+TAIL_CODE = "510300.SH"  # 尾盘占比的代表 ETF（stk_mins 账号限额 1 次/小时，每次构建只能调 1 次）
 
 
 def _s(name, icon, sw, basic, dynamic=False):
     return {"name": name, "icon": icon, "sw": sw, "basic": basic, "dynamic": dynamic}
 
 
-# 板块定义：sw = 申万 L1/L2/L3 名称关键词（子串匹配，先去掉「Ⅱ」「Ⅲ」）；basic = 降级时匹配 stock_basic.industry
+# 板块定义：sw = 申万 L2/L3 名称（与 L2 或 L3 名称完全相等，先去掉「Ⅱ」「Ⅲ」；不做子串匹配）；basic = 降级时匹配 stock_basic.industry
 SECTORS = [
     _s("油气航运·地缘防御", "🛢️",
        ["油气开采", "炼化及贸易", "油服工程", "航运港口", "航空装备", "军工电子", "地面兵装", "航天装备"],
@@ -37,7 +38,7 @@ SECTORS = [
        ["软件开发", "IT服务", "游戏", "数字媒体", "出版", "影视院线", "广告营销"],
        ["软件服务", "互联网", "影视音像", "出版业"]),
     _s("红利权重·银行", "🏦",
-       ["银行", "煤炭开采", "电信服务", "电力", "高速公路"],
+       ["国有大型银行", "股份制银行", "城商行", "农商行", "煤炭开采", "电信运营商", "电力", "高速公路"],
        ["银行", "煤炭开采", "电信运营", "火力发电", "水力发电", "路桥"]),
     _s("光伏设备·组件", "☀️", ["光伏设备"], ["电气设备"]),
     _s("CPO·PCB", "🔌",
@@ -72,7 +73,7 @@ VOTE = dict(turnover_hi=1.10, turnover_lo=0.90, margin_pct=0.5, shibor_bp=5, loo
 RATE_BAND_BP = 10
 
 NEWS_DAYS = 7
-NEWS_MAX_CALLS = 10  # 单次构建最多调用 major_news 次数；账号限额 40 次/天、30 次/小时，每天 3 次构建需留余量
+NEWS_MAX_CALLS = 8  # 单次构建最多调用 major_news 次数；账号限额 40 次/天、30 次/小时，每天 3 次构建需留余量
 NEWS_KW_DOMESTIC = ["互换便利", "SFISF", "再贷款", "汇金", "平准", "央行", "人民银行", "证监会", "金融监管",
                     "降准", "降息", "LPR", "MLF", "逆回购", "国务院", "政治局", "财政部", "特别国债"]
 NEWS_KW_EXTERNAL = ["美联储", "鲍威尔", "FOMC", "议息", "加息", "降息", "非农", "CPI", "美债", "美元",

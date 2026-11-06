@@ -236,3 +236,26 @@ def test_match_sectors_ignores_l1():
     assert label == "申万行业"
     assert "PV.SZ" in m["光伏设备·组件"] and "PV.SZ" not in m["红利权重·银行"]
     assert "UT.SH" in m["红利权重·银行"]
+
+
+def test_match_sectors_exact_name_not_substring():
+    """真实数据：「白酒」曾子串命中 L2「非白酒」，「电池」命中「光伏电池组件」「电池化学品」。"""
+    basic = pd.DataFrame({"ts_code": ["MT.SH", "BEER.SH", "PVM.SZ", "LI.SZ", "CHEM.SZ", "BK.SH", "CCB.SH"],
+                          "name": ["茅台", "啤酒", "光伏组件", "锂电", "电池化学品", "城商行", "招行"],
+                          "industry": ["", "", "", "", "", "", ""]})
+    sw = pd.DataFrame({"ts_code": basic["ts_code"],
+                       "l1_name": ["食品饮料", "食品饮料", "电力设备", "电力设备", "基础化工", "银行", "银行"],
+                       "l2_name": ["白酒Ⅱ", "非白酒", "光伏设备", "电池", "电子化学品Ⅱ", "城商行Ⅱ", "股份制银行Ⅱ"],
+                       "l3_name": ["白酒Ⅲ", "啤酒", "光伏电池组件", "锂电池", "电池化学品", "城商行Ⅲ", "股份制银行Ⅲ"]})
+    m, _ = match_sectors(basic, sw, set())
+    assert m["消费白酒·零售"] == {"MT.SH"}                      # 非白酒 / 啤酒 不再并入
+    assert m["锂电·新能源"] == {"LI.SZ"}                         # 光伏电池组件、电池化学品 不并入
+    assert m["红利权重·银行"] == {"BK.SH", "CCB.SH"}              # 城商行已在板块定义里
+
+
+def test_config_sw_keywords_all_exist_as_real_l2_l3_names():
+    """每个静态板块的 sw 关键词都必须是申万 L2/L3 的真实名称（电信服务、银行曾为 0 命中）。"""
+    import config
+    kws = {k for s in config.SECTORS if not s["dynamic"] for k in s["sw"]}
+    assert "电信服务" not in kws and "银行" not in kws
+    assert {"电信运营商", "国有大型银行", "股份制银行", "城商行", "农商行"} <= kws

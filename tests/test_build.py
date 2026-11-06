@@ -39,7 +39,7 @@ def test_build_demo_end_to_end(tmp_path):
     assert set(data) >= {"meta", "conclusions", "indices", "liquidity", "policy_ops", "news", "sector_flow",
                          "etf_flow", "round", "monthly", "fingerprint", "temperature", "concentration"}
     assert data["meta"]["trade_date"] == DATE
-    assert data["meta"]["tail_source"] == "stk_mins" and data["fingerprint"]["tail"]["today"] is not None
+    assert data["meta"]["tail_source"] == "stk_mins·510300" and data["fingerprint"]["tail"]["today"] is not None
     assert data["meta"]["sector_mode"] in ("申万行业", "stock_basic.industry")
     assert len(data["indices"]) == 5
     liq = data["liquidity"]
@@ -154,6 +154,25 @@ def test_minutes_stops_after_first_none(tmp_path, monkeypatch):
     assert CountingMinutes.calls == 1
 
 
+class RecordingMinutes(DemoSource):
+    seen = []
+
+    def etf_minutes(self, code, start, end):
+        type(self).seen.append((code, start, end))
+        return super().etf_minutes(code, start, end)
+
+
+def test_tail_uses_single_representative_etf_one_call(tmp_path, monkeypatch):
+    """stk_mins 限额 1 次/小时：每次构建只调一次，代码取 config.TAIL_CODE，区间 yday→D。"""
+    RecordingMinutes.seen = []
+    _, data = run(tmp_path, RecordingMinutes(), monkeypatch=monkeypatch)
+    assert len(RecordingMinutes.seen) == 1
+    code, start, end = RecordingMinutes.seen[0]
+    assert code == "510300.SH" and end == DATE and start < end
+    t = data["fingerprint"]["tail"]
+    assert t["today"] is not None and t["source"] == "stk_mins·510300"
+
+
 class BrokenSource(DemoSource):
     def margin(self, start, end):
         raise RuntimeError("boom token=SECRET123")
@@ -196,3 +215,34 @@ def test_round_attribution_none_when_total_not_positive(tmp_path):
     r = data["round"]
     assert r["total"] is not None and r["total"] <= 0
     assert r["low"] is None and r["high"] is None and r["mid"] is None
+
+
+class ExactLimits(DemoSource):
+    calls = []
+
+    def limit_counts(self, trade_date):
+        type(self).calls.append(trade_date)
+        return {"up": 32, "down": 15}
+
+
+def test_temperature_limit_counts_use_exact_values(tmp_path, monkeypatch):
+    """体温面板展示的涨停/跌停与流动性卡片同为 limit_list_d 精确值；每个交易日只调用一次。"""
+    ExactLimits.calls = []
+    _, data = run(tmp_path, ExactLimits(), monkeypatch=monkeypatch)
+    t = data["temperature"]
+    assert t["limit_up"] == 32 and t["limit_down"] == 15
+    card = next(c for c in data["liquidity"]["domestic"] if c["key"] == "limit")
+    assert card["value"] == 32 and card["note"] == "跌停 15"
+    assert ExactLimits.calls.count(DATE) == 1
+
+
+class NoExactLimits(DemoSource):
+    def limit_counts(self, trade_date):
+        return {"up": None, "down": None}
+
+
+def test_temperature_limit_counts_fallback_to_approx_with_warning(tmp_path, monkeypatch):
+    _, data = run(tmp_path, NoExactLimits(), monkeypatch=monkeypatch)
+    t = data["temperature"]
+    assert isinstance(t["limit_up"], int) and isinstance(t["limit_down"], int)
+    assert any("涨跌停精确家数缺失" in w for w in data["meta"]["warnings"])
