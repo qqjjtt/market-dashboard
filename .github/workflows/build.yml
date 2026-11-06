@@ -30,7 +30,6 @@ jobs:
       - run: python build.py --out site/index.html
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
