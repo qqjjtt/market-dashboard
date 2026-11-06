@@ -46,3 +46,37 @@ def test_fred_header_only_returns_none():
 def test_fred_garbage_values_become_nan():
     s = FredSource(lambda url: "DATE,X\n2026-11-03,abc\n2026-11-04,2\n").series("X", "2026-09-01")
     assert math.isnan(s.iloc[0]) and s.iloc[1] == 2
+
+
+API_JSON = '{"observations": [{"date": "2026-10-28", "value": "6745635"}, {"date": "2026-11-04", "value": "."}]}'
+
+
+def test_fred_api_key_uses_official_api_json():
+    urls = []
+    s = FredSource(lambda url: urls.append(url) or API_JSON, api_key="k123").series("WALCL", "2026-09-01")
+    assert urls == ["https://api.stlouisfed.org/fred/series/observations"
+                    "?series_id=WALCL&observation_start=2026-09-01&api_key=k123&file_type=json"]
+    assert s.iloc[0] == 6745635 and math.isnan(s.iloc[1])
+    assert s.index[1] == pd.Timestamp("2026-11-04") and s.name == "WALCL"
+
+
+def test_fred_api_error_returns_none_without_leaking_key(caplog):
+    def boom(url):
+        raise RuntimeError(f"HTTP 400 for {url}")
+    with caplog.at_level(logging.WARNING):
+        assert FredSource(boom, api_key="k123").series("WALCL", "2026-09-01") is None
+    assert caplog.records and all("k123" not in r.getMessage() for r in caplog.records)
+
+
+def test_fred_api_error_json_returns_none(caplog):
+    body = '{"error_code": 400, "error_message": "Bad Request.  The value for variable api_key is not registered."}'
+    with caplog.at_level(logging.WARNING):
+        assert FredSource(lambda url: body, api_key="bad").series("WALCL", "2026-09-01") is None
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_fred_from_env(monkeypatch):
+    monkeypatch.setenv("FRED_API_KEY", "envkey")
+    assert FredSource.from_env().api_key == "envkey"
+    monkeypatch.delenv("FRED_API_KEY")
+    assert FredSource.from_env().api_key is None

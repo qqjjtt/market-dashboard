@@ -419,3 +419,10 @@ def test_round_attribution_and_sector_days_in_payload(tmp_path):
     _, data = run(tmp_path)
     assert data["round"]["attribution"] == [0.7, 0.9]
     assert data["sector_flow"]["d5"]["days"] == 5 and data["sector_flow"]["day"]["days"] == 1
+
+
+def test_scrub_masks_fred_api_key(monkeypatch):
+    import build
+    monkeypatch.setenv("TUSHARE_TOKEN", "SECRET123")
+    monkeypatch.setenv("FRED_API_KEY", "FREDKEY456")
+    assert build._scrub("a SECRET123 b FREDKEY456") == "a *** b ***"

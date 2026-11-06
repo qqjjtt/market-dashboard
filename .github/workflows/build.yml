@@ -30,6 +30,7 @@ jobs:
       - run: python build.py --out site/index.html
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

@@ -48,8 +48,11 @@ CORE5_NAME, BROAD10_NAME, IND6_NAME, ALL16_NAME = "核心五通道", "宽基十�
 # ------------------------------------------------------------------ 小工具
 
 def _scrub(msg: str) -> str:
-    token = os.environ.get("TUSHARE_TOKEN")
-    return msg.replace(token, "***") if token else msg
+    for name in ("TUSHARE_TOKEN", "FRED_API_KEY"):
+        secret = os.environ.get(name)
+        if secret:
+            msg = msg.replace(secret, "***")
+    return msg
 
 
 def _short(e: Exception, n: int = 80) -> str:
@@ -733,7 +736,7 @@ def _make_sources(demo: bool):
         return DemoSource(), DemoFred()
     from fred import FredSource
     from sources import TushareSource
-    return TushareSource.from_env(), FredSource()
+    return TushareSource.from_env(), FredSource.from_env()
 
 
 def main(argv: list[str] | None = None) -> int:

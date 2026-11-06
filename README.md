@@ -7,7 +7,7 @@
 3. **国家队还在不在**：宽基 ETF 的净申赎、成交指纹，加上政策工具表佐证
 4. **散户情绪**：韭菜浓度、市场体温
 
-页面最上面先给四句规则生成的结论，下面才是图表细节。数据源是 tushare + FRED 公开 CSV，没有数据库、没有后台服务。
+页面最上面先给四句规则生成的结论，下面才是图表细节。数据源是 tushare + FRED，没有数据库、没有后台服务。
 设计依据见 `docs/superpowers/specs/2026-11-06-market-dashboard-design.md`（与 `docs/reference/PROMPT.md` 冲突时以前者为准）。
 
 ## 运行
@@ -15,6 +15,7 @@
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 export TUSHARE_TOKEN=你的token          # 只从环境变量读取，不会写进日志或页面
+export FRED_API_KEY=你的key             # 可选；没有则退回 FRED 公开 CSV
 .venv/bin/python build.py               # 默认输出 site/index.html，交易日按北京时间当天自动回退
 ```
 
@@ -49,7 +50,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 **一次性设置（仓库网页上）**
 
-1. Settings → Secrets and variables → Actions → 新增 Repository secret `TUSHARE_TOKEN`（token 只在 CI 的环境变量里，不进日志与页面）。
+1. Settings → Secrets and variables → Actions → 新增 Repository secret `TUSHARE_TOKEN`（token 只在 CI 的环境变量里，不进日志与页面）；再新增 `FRED_API_KEY`（在 https://fredaccount.stlouisfed.org 免费申请，同样不进日志与页面）。
 2. Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
 3. Actions 页手动点一次 `build`（`workflow_dispatch`）确认成功，Pages 地址能从外网打开。
 
@@ -143,7 +144,8 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 ## FRED 数据
 
-- 通过公开 CSV 取数，无需 API key：`https://fred.stlouisfed.org/graph/fredgraph.csv?id=<序列>&cosd=<起始日>`。
+- 设置了 `FRED_API_KEY` 时走官方 API：`https://api.stlouisfed.org/fred/series/observations`（JSON）。
+- 未设置时退回公开 CSV（无需 key）：`https://fred.stlouisfed.org/graph/fredgraph.csv?id=<序列>&cosd=<起始日>`。2026-11 起该地址对脚本请求经常直接断开连接（本机与 GitHub Actions 都如此），所以线上应配 key。
 - 序列：`WALCL`（美联储总资产，百万美元，周频）、`WTREGEN`（财政部 TGA 账户，百万美元，周频）、`RRPONTSYD`（隔夜逆回购，十亿美元，日频）、`WRESBAL`（银行准备金，百万美元，周频）、`DFF`（联邦基金有效利率，%，日频）。
 - 周频数据天然滞后数日，各卡片标注自身数据日期。FRED 失败时对应卡片显示「无数据」，不影响其他部分。
 
