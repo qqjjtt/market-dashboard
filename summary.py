@@ -1,0 +1,142 @@
+"""页头四句结论（SPEC §4.0）。纯函数，不做 IO。缺失值 None，绝不补 0。"""
+from __future__ import annotations
+
+import math
+
+MINUS = "−"
+_DIR_WORD = {1: "松", 0: "平", -1: "紧"}
+
+
+def _ok(x) -> bool:
+    return x is not None and not (isinstance(x, float) and not math.isfinite(x))
+
+
+def _signed(x: float, nd: int = 1) -> str:
+    """带符号数：+45.0 / −5.0（负号用 −）。"""
+    s = f"{abs(x):.{nd}f}"
+    if float(s) == 0:
+        return s
+    return f"+{s}" if x > 0 else f"{MINUS}{s}"
+
+
+def _md(d: str | None) -> str:
+    return f"{int(d[4:6])}/{int(d[6:8])}" if d and len(d) >= 8 else "—"
+
+
+def _card(key: str, title: str, text: str, sub: str, tone: str) -> dict:
+    return {"key": key, "title": title, "text": text, "sub": sub, "tone": tone}
+
+
+def national_team_verdict(last3: list[float]) -> tuple[str, str]:
+    """最近 3 个已披露日（新→旧）净申赎 → (label, tone)。
+
+    3 日合计 > 0 且至少 2 日为正 → 仍在；合计 < 0 且至少 2 日为负 → 疑似撤出；其余 → 放缓。
+    """
+    vals = [float(v) for v in last3 if _ok(v)]
+    if not vals:
+        return "数据不足", "gray"
+    total = sum(vals)
+    pos = sum(v > 0 for v in vals)
+    neg = sum(v < 0 for v in vals)
+    if total > 0 and pos >= 2:
+        return "仍在", "red"
+    if total < 0 and neg >= 2:
+        return "疑似撤出", "green"
+    return "放缓", "orange"
+
+
+def _liquidity_card(vote: dict, rate_expect: dict, fed_card: dict) -> dict:
+    sigs = vote.get("signals", [])
+    parts = []
+    for s in sigs:
+        d = s.get("dir")
+        parts.append(f"{s['name']} {_DIR_WORD[d]}" if d in _DIR_WORD else f"{s['name']} 缺失（不计票）")
+    line1 = " · ".join(parts)
+
+    chg = (fed_card or {}).get("change")
+    if _ok(chg):
+        arrow = "↑" if chg > 0 else "↓" if chg < 0 else "→"
+        fed = f"美元净流动性 4 周 {arrow} {abs(chg):.0f} 十亿"
+    else:
+        fed = "美元净流动性数据缺失"
+    label = (rate_expect or {}).get("label")
+    rate = label if label and label != "无数据" else "利率预期无数据"
+    line2 = f"外围：{fed} · {rate}"
+
+    if all(s.get("dir") is None for s in sigs):
+        text, tone = "国内流动性数据不足", "gray"
+    else:
+        text = f"国内流动性{vote['label']}（合计 {vote['score']:+d}）"
+        tone = {"偏松": "red", "偏紧": "green"}.get(vote["label"], "blue")
+    return _card("liquidity", "流动性", text, f"{line1}\n{line2}", tone)
+
+
+def _sector_card(sector_day: dict) -> dict:
+    inflow = [r["name"] for r in (sector_day or {}).get("inflow", [])[:3]]
+    outflow = [r["name"] for r in (sector_day or {}).get("outflow", [])[:3]]
+    if not inflow and not outflow:
+        return _card("sector", "板块流向", "暂无板块资金流向数据", "同花顺行业口径", "gray")
+    text = f"流入：{'、'.join(inflow) or '—'} ｜ 流出：{'、'.join(outflow) or '—'}"
+    return _card("sector", "板块流向", text, "同花顺行业 · 当日净额前三 / 后三", "blue")
+
+
+def _team_card(team_last3: list[float], team_asof: str | None, round_total: float | None) -> dict:
+    vals = [float(v) for v in team_last3 if _ok(v)]
+    label, tone = national_team_verdict(vals)
+    if not vals:
+        return _card("team", "国家队", "暂无已披露数据", "沪市 11 只核心 ETF 净申赎", "gray")
+    total = sum(vals)
+    n = len(vals)
+    if label == "仍在":
+        text = f"仍在（近 {n} 日 {_signed(total)} 亿）"
+    elif label == "疑似撤出":
+        text = f"疑似撤出（{_signed(total)} 亿）"
+    else:
+        text = f"放缓（近 {n} 日 {_signed(total)} 亿）"
+    sub = f"截至 {_md(team_asof)}"
+    if _ok(round_total):
+        sub += f" · 本轮累计 {_signed(round_total)} 亿"
+    return _card("team", "国家队", text, sub, tone)
+
+
+def _band(t: float) -> str:
+    if t >= 80:
+        return "过热"
+    if t >= 60:
+        return "温暖"
+    if t >= 40:
+        return "中性"
+    if t >= 20:
+        return "偏冷"
+    return "冰冷"
+
+
+def _retail_card(temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None) -> dict:
+    today = (temp_kpis or {}).get("today")
+    if not _ok(today):
+        return _card("retail", "散户情绪", "体温暂无数据", "五维口径", "gray")
+    if _ok(market_conc):
+        conc = f"浓度 {market_conc:.1f}%"
+        if _ok(market_conc_yday):
+            conc += f"（{_signed(market_conc - market_conc_yday)}pp）"
+    else:
+        conc = "浓度 —"
+    tone = "red" if today >= 60 else "orange" if today >= 40 else "blue"
+    dt = (temp_kpis or {}).get("delta_text")
+    return _card("retail", "散户情绪", f"体温 {today:.1f}（{_band(today)}）· {conc}",
+                 f"五维口径 · 较昨日{dt}" if dt else "五维口径", tone)
+
+
+def build_conclusions(vote: dict, rate_expect: dict, fed_card: dict, sector_day: dict,
+                      team_last3: list[float], team_asof: str | None, round_total: float | None,
+                      temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None) -> list[dict]:
+    """四张结论卡（流动性 / 板块流向 / 国家队 / 散户情绪）。
+
+    流动性卡的 sub 含两行（\\n 分隔）：信号方向行 + 外围一句。
+    """
+    return [
+        _liquidity_card(vote, rate_expect, fed_card),
+        _sector_card(sector_day),
+        _team_card(team_last3, team_asof, round_total),
+        _retail_card(temp_kpis, market_conc, market_conc_yday),
+    ]

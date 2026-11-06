@@ -1,0 +1,80 @@
+from summary import build_conclusions, national_team_verdict
+
+
+def test_team_verdict():
+    assert national_team_verdict([100, -20, 50])[0].startswith("仍在")
+    assert national_team_verdict([-100, -20, 50])[0].startswith("疑似撤出")
+    assert national_team_verdict([100, -150, 20])[0] == "放缓"
+
+
+def test_team_verdict_tones_and_empty():
+    assert national_team_verdict([10, 5, -1])[1] == "red"
+    assert national_team_verdict([-10, -5, 1])[1] == "green"
+    assert national_team_verdict([])[1] == "gray"
+
+
+VOTE = {"score": 2, "label": "偏松", "signals": [
+    {"name": "成交额", "dir": 1, "detail": "x"}, {"name": "两融余额", "dir": 0, "detail": "x"},
+    {"name": "主力净流入", "dir": -1, "detail": "x"}, {"name": "Shibor 1W", "dir": None, "detail": "数据缺失，不计票"}]}
+RATE = {"effective": 3.88, "implied": 3.6, "diff_bp": -28.0, "label": "市场预期降息"}
+FED = {"key": "fed_net", "value": 5800.0, "change": 42.4, "change_unit": "十亿美元"}
+SECTOR = {"inflow": [{"name": n, "net": 5.0, "pct": 1.0} for n in "ABCD"],
+          "outflow": [{"name": n, "net": -5.0, "pct": -1.0} for n in "WXYZ"]}
+KPIS = {"today": 71.2, "delta_text": "明显升温"}
+
+
+def conclusions(**over):
+    kw = dict(vote=VOTE, rate_expect=RATE, fed_card=FED, sector_day=SECTOR, team_last3=[30.0, 20.0, -5.0],
+              team_asof="20261105", round_total=88.0, temp_kpis=KPIS, market_conc=65.3, market_conc_yday=64.1)
+    kw.update(over)
+    return build_conclusions(**kw)
+
+
+def by_key(cs):
+    return {c["key"]: c for c in cs}
+
+
+def test_four_cards_shape():
+    cs = conclusions()
+    assert [c["key"] for c in cs] == ["liquidity", "sector", "team", "retail"]
+    for c in cs:
+        assert set(c) == {"key", "title", "text", "sub", "tone"}
+        assert c["tone"] in {"red", "orange", "blue", "green", "gray"}
+
+
+def test_liquidity_card():
+    c = by_key(conclusions())["liquidity"]
+    assert "偏松" in c["text"] and c["tone"] == "red"
+    assert "Shibor 1W" in c["sub"] and "不计票" in c["sub"]
+    assert "外围：美元净流动性 4 周 ↑ 42 十亿" in c["sub"] and "市场预期降息" in c["sub"]
+
+
+def test_liquidity_fed_missing():
+    c = by_key(conclusions(fed_card={"key": "fed_net", "value": None, "change": None}))["liquidity"]
+    assert "外围：美元净流动性数据缺失" in c["sub"]
+
+
+def test_sector_card():
+    c = by_key(conclusions())["sector"]
+    assert c["text"] == "流入：A、B、C ｜ 流出：W、X、Y"
+    c = by_key(conclusions(sector_day={"inflow": [], "outflow": []}))["sector"]
+    assert c["tone"] == "gray"
+
+
+def test_team_card():
+    c = by_key(conclusions())["team"]
+    assert c["text"].startswith("仍在（近 3 日 +45.0 亿）") and c["tone"] == "red"
+    assert "截至 11/5" in c["sub"] and "本轮累计 +88.0 亿" in c["sub"]
+    c = by_key(conclusions(team_last3=[]))["team"]
+    assert c["tone"] == "gray"
+    c = by_key(conclusions(team_last3=[-30.0, -20.0, 5.0], round_total=None))["team"]
+    assert c["text"].startswith("疑似撤出（−45.0 亿）") and "本轮累计" not in c["sub"]
+
+
+def test_retail_card():
+    c = by_key(conclusions())["retail"]
+    assert c["text"] == "体温 71.2（温暖）· 浓度 65.3%（+1.2pp）" and c["tone"] == "red"
+    c = by_key(conclusions(temp_kpis={"today": 35.0}, market_conc=None))["retail"]
+    assert "浓度 —" in c["text"] and c["tone"] == "blue"
+    c = by_key(conclusions(temp_kpis={}))["retail"]
+    assert c["tone"] == "gray" and "体温暂无数据" in c["text"]
