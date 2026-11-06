@@ -81,3 +81,4 @@ FRED_SERIES = ["WALCL", "WTREGEN", "RRPONTSYD", "WRESBAL", "DFF"]
 MAX_CALLS_PER_MIN = 200
 DISCLOSURE_MIN = 0.8
 SPARK_DAYS = 30
+API_MIN_INTERVAL = {"stk_mins": 61}  # 单接口两次调用的最小间隔（秒）；stk_mins 账号限额 1 次/分钟

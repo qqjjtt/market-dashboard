@@ -1,6 +1,8 @@
 """TushareSource 单元测试：全部使用假 pro 对象，不触网、不使用真实 token。"""
 from datetime import datetime, timedelta
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -177,17 +179,107 @@ def test_sw_members_permission_returns_none():
 
 def test_etf_minutes_permission_returns_none():
     src, _ = make(FakePro(stk_mins=Exception("抱歉，您没有接口(stk_mins)访问权限")))
-    assert src.etf_minutes("510300.SH", "20261105") is None
+    assert src.etf_minutes("510300.SH", "20261105", "20261105") is None
 
 
 def test_etf_minutes_window_and_columns():
     mins = pd.DataFrame({"trade_time": ["2026-11-05 09:31:00"], "amount": [1.0], "close": [1.0]})
     pro = FakePro(stk_mins=mins)
     src, _ = make(pro)
-    df = src.etf_minutes("510300.SH", "20261105")
+    df = src.etf_minutes("510300.SH", "20261104", "20261105")
     assert list(df.columns) == ["trade_time", "amount"]
+    assert len(pro.calls) == 1  # 一次调用覆盖整个区间
     kw = pro.calls[0][1]
-    assert kw["freq"] == "1min" and kw["start_date"] == "2026-11-05 09:30:00" and kw["end_date"] == "2026-11-05 15:00:00"
+    assert kw["freq"] == "1min" and kw["start_date"] == "2026-11-04 09:30:00" and kw["end_date"] == "2026-11-05 15:00:00"
+
+
+def test_etf_minutes_ascending():
+    mins = pd.DataFrame({"trade_time": ["2026-11-05 09:32:00", "2026-11-05 09:31:00"], "amount": [2.0, 1.0]})
+    src, _ = make(FakePro(stk_mins=mins))
+    assert list(src.etf_minutes("510300.SH", "20261105", "20261105").amount) == [1.0, 2.0]
+
+
+def test_api_min_interval_stk_mins():
+    pro = FakePro(stk_mins=pd.DataFrame({"trade_time": ["t"], "amount": [1.0]}),
+                  daily=pd.DataFrame({"a": [1]}))
+    src, slept = make(pro)
+    src.etf_minutes("510300.SH", "20261105", "20261105")
+    assert slept == []
+    src.call("daily")
+    src.call("daily")
+    assert slept == []  # 其他接口不受间隔限制
+    src.etf_minutes("510159.SZ", "20261105", "20261105")
+    assert len(slept) == 1 and slept[0] == pytest.approx(61)
+
+
+def test_api_min_interval_elapsed_no_wait():
+    clock = Clock()
+    pro = FakePro(stk_mins=pd.DataFrame({"trade_time": ["t"], "amount": [1.0]}))
+    src, slept = make(pro, clock=clock)
+    src.etf_minutes("510300.SH", "20261105", "20261105")
+    clock.t = 30
+    src.etf_minutes("510300.SH", "20261105", "20261105")
+    assert slept == [pytest.approx(31)]
+
+
+def test_stk_mins_rate_limit_returns_none_without_retry(caplog):
+    pro = FakePro(stk_mins=Exception("抱歉，您访问接口(stk_mins)频率超限(1次/分钟)，权限的具体详情"))
+    src, slept = make(pro)
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        assert src.etf_minutes("510300.SH", "20261105", "20261105") is None
+    assert slept == [] and len(pro.calls) == 1
+    assert any("频率超限" in r.getMessage() for r in caplog.records)
+
+
+def test_other_api_rate_limit_still_retried():
+    src, slept = make(FakePro(daily=Exception("抱歉，您访问接口(daily)频率超限(1次/分钟)")))
+    with pytest.raises(SourceError):
+        src.call("daily")
+    assert slept == [2, 4, 8]
+
+
+def test_retry_warning_logs_type_only(caplog):
+    secret = "token=SECRET123 boom"
+    src, _ = make(FakePro(daily=Exception(secret)))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        with pytest.raises(SourceError):
+            src.call("daily")
+    retry_logs = [r.getMessage() for r in caplog.records if "重试" in r.getMessage()]
+    assert len(retry_logs) == 3
+    assert all("Exception" in m and "SECRET123" not in m for m in retry_logs)
+
+
+def test_missing_columns_warns_and_returns_empty(caplog):
+    src, _ = make(FakePro(daily=pd.DataFrame({"ts_code": ["a"], "foo": [1]})))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        d = src.stock_daily("20261105")
+    assert d.empty and list(d.columns) == ["ts_code", "pct_chg", "amount"]
+    assert any("缺少预期列" in r.getMessage() for r in caplog.records)
+
+
+def test_margin_drops_partial_day_and_warns(caplog):
+    df = pd.DataFrame({
+        "trade_date": ["20261104"] * 3 + ["20261105"] * 2,
+        "exchange_id": ["SSE", "SZSE", "BSE", "SSE", "SZSE"],
+        "rzrqye": [1e10, 1e10, 1e9, 1e10, 1e10],
+    })
+    src, _ = make(FakePro(margin=df))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        m = src.margin("20261104", "20261105")
+    assert list(m.trade_date) == ["20261104"] and m.balance.iloc[0] == pytest.approx(210.0)
+    assert any("margin" in r.getMessage() and "20261105" in r.getMessage() for r in caplog.records)
+
+
+def test_margin_all_nan_day_dropped_not_zero():
+    nan = float("nan")
+    df = pd.DataFrame({
+        "trade_date": ["20261104"] * 2 + ["20261105"] * 2,
+        "exchange_id": ["SSE", "SZSE"] * 2,
+        "rzrqye": [1e10, 1e10, nan, nan],
+    })
+    src, _ = make(FakePro(margin=df))
+    m = src.margin("20261104", "20261105")
+    assert list(m.trade_date) == ["20261104"]
 
 
 def test_limit_counts():
@@ -281,9 +373,21 @@ def test_major_news_stops_at_min_window():
     src, _ = make(FakePro(major_news=always_full))
     df = src.major_news("2026-11-06 00:00:00", "2026-11-06 00:30:00")
     assert len(df) > 0
-    for s, e in calls:
-        assert (datetime.strptime(e, FMT) - datetime.strptime(s, FMT)) >= timedelta(minutes=0)
-    assert len(calls) < 50  # 窗口 <= 10 分钟后不再二分
+    spans = [datetime.strptime(e, FMT) - datetime.strptime(s, FMT) for s, e in calls]
+    # 30 -> 15 -> 7.5：窗口 <= 10 分钟后不再二分，所以最小被调用窗口 >= 10/2 分钟
+    assert min(spans) >= timedelta(minutes=5)
+    assert len(calls) == 7  # 1 + 2 + 4，没有对 7.5 分钟窗口继续二分
+
+
+def test_major_news_floor_truncation_warns(caplog):
+    def always_full(start_date, end_date, fields=None):
+        return pd.DataFrame({"title": [f"{start_date}-{i}" for i in range(800)], "pub_time": start_date,
+                             "src": "x", "url": "u"})
+
+    src, _ = make(FakePro(major_news=always_full))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        src.major_news("2026-11-06 00:00:00", "2026-11-06 00:08:00")
+    assert any("截断" in r.getMessage() for r in caplog.records)
 
 
 def test_major_news_empty():

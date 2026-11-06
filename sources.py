@@ -33,14 +33,20 @@ class SourceError(Exception):
     """接口调用重试后仍失败，或配置缺失。"""
 
 
+class RateLimited(SourceError):
+    """频率超限且该接口不做重试（见 config.API_MIN_INTERVAL）。"""
+
+
 def _empty(cols):
     return pd.DataFrame({c: pd.Series(dtype="object") for c in cols})
 
 
 class TushareSource:
     def __init__(self, pro, sleep=time.sleep, clock=time.monotonic,
-                 max_calls_per_min=config.MAX_CALLS_PER_MIN):
+                 max_calls_per_min=config.MAX_CALLS_PER_MIN, api_min_interval=None):
         self.pro = pro
+        self._min_interval = config.API_MIN_INTERVAL if api_min_interval is None else api_min_interval
+        self._last_call = {}  # api -> 上次调用时刻
         self._sleep = sleep
         self._clock = clock
         self._max_calls = max_calls_per_min
@@ -68,11 +74,22 @@ class TushareSource:
             self._times.popleft()
         self._times.append(now)
 
+    def _api_gap(self, api):
+        """同一接口两次调用的最小间隔（config.API_MIN_INTERVAL），叠加在全局节流之上。"""
+        gap = self._min_interval.get(api)
+        if gap and api in self._last_call:
+            wait = gap - (self._clock() - self._last_call[api])
+            if wait > 0:
+                self._sleep(wait)
+        self._last_call[api] = self._clock()
+
     def call(self, api, **kw):
         """节流 + 重试。权限错误立即抛 PermissionDenied；其余异常（含频率超限）
-        等 2/4/8 秒重试，共 4 次，仍失败抛 SourceError。"""
+        等 2/4/8 秒重试，共 4 次，仍失败抛 SourceError。
+        例外：config.API_MIN_INTERVAL 中的接口（stk_mins）频率超限不重试，直接抛 RateLimited。"""
         last = None
         for attempt in range(len(_RETRY_WAITS) + 1):
+            self._api_gap(api)
             self._throttle()
             try:
                 df = getattr(self.pro, api)(**kw)
@@ -83,8 +100,13 @@ class TushareSource:
                 if "频率超限" not in msg and ("没有接口" in msg or "权限" in msg):
                     log.warning("接口无权限: %s", api)
                     raise PermissionDenied(f"{api}: 无访问权限") from e
+                if "频率超限" in msg and api in self._min_interval:
+                    log.warning("接口频率超限，不重试: %s", api)
+                    raise RateLimited(f"{api}: 频率超限") from e
                 last = e
                 if attempt < len(_RETRY_WAITS):
+                    # 只记录异常类型，不记录消息（避免泄露 token 等信息）
+                    log.warning("%s 调用失败（%s），第 %d 次重试", api, type(e).__name__, attempt + 1)
                     self._sleep(_RETRY_WAITS[attempt])
         raise SourceError(f"{api} 调用失败（已重试 {len(_RETRY_WAITS)} 次）: {type(last).__name__}") from last
 
@@ -93,7 +115,10 @@ class TushareSource:
         df = self.call(api, **kw)
         if rename:
             df = df.rename(columns=rename)
-        if df.empty or not all(c in df.columns for c in cols):
+        if df.empty:
+            return _empty(cols)
+        if not all(c in df.columns for c in cols):
+            log.warning("%s 返回缺少预期列 %s，按空数据处理", api, [c for c in cols if c not in df.columns])
             return _empty(cols)
         df = df[cols].copy()
         if "trade_date" in df.columns:
@@ -152,6 +177,7 @@ class TushareSource:
             return _empty(cols)
         out = pd.concat(frames, ignore_index=True)
         if not all(c in out.columns for c in cols):
+            log.warning("index_member_all 返回缺少预期列，按空数据处理")
             return _empty(cols)
         return out[cols].reset_index(drop=True)
 
@@ -184,13 +210,18 @@ class TushareSource:
         return self._fetch("index_daily", ["trade_date", "close", "pct_chg"], ts_code=code,
                            start_date=start, end_date=end)
 
-    def etf_minutes(self, code, trade_date):
-        """ETF 1 分钟线 09:30–15:00；amount 保持 tushare 原值。无权限返回 None。"""
-        d = f"{trade_date[:4]}-{trade_date[4:6]}-{trade_date[6:]}"
+    def etf_minutes(self, code, start, end):
+        """ETF 1 分钟线，一次 stk_mins 调用覆盖 start 09:30:00 至 end 15:00:00（start/end 为 YYYYMMDD，含两端）。
+        列 [trade_time, amount]，升序；amount 保持 tushare 原值。
+        无权限或频率超限（stk_mins 账号限额 1 次/分钟，且不重试）→ None（频率超限记 WARNING）。"""
+        fmt = lambda d: f"{d[:4]}-{d[4:6]}-{d[6:]}"  # noqa: E731
         try:
             return self._fetch("stk_mins", ["trade_time", "amount"], ts_code=code, freq="1min",
-                               start_date=f"{d} 09:30:00", end_date=f"{d} 15:00:00")
+                               start_date=f"{fmt(start)} 09:30:00", end_date=f"{fmt(end)} 15:00:00")
         except PermissionDenied:
+            return None
+        except RateLimited:
+            log.warning("etf_minutes(%s) 频率超限，返回 None", code)
             return None
 
     # ------------------------------------------------------------ 资金与情绪
@@ -209,13 +240,20 @@ class TushareSource:
         return df
 
     def margin(self, start, end):
-        """两融余额。balance：亿元（rzrqye 原值元，三个交易所按日求和后 ÷1e8）。"""
+        """两融余额。balance：亿元（rzrqye 原值元，三个交易所按日求和后 ÷1e8）。
+        某日交易所数少于结果中出现过的最大数（如最新一天尚未发布完）→ 丢弃该日并记 WARNING。"""
         df = self._fetch("margin", ["trade_date", "rzrqye"], start_date=start, end_date=end)
         if df.empty:
             return _empty(["trade_date", "balance"])
-        out = df.groupby("trade_date", as_index=False)["rzrqye"].sum()
-        out["balance"] = out["rzrqye"] / 1e8
-        return out[["trade_date", "balance"]].sort_values("trade_date").reset_index(drop=True)
+        g = df.groupby("trade_date")["rzrqye"]
+        agg = pd.DataFrame({"total": g.sum(min_count=1), "n": g.count()})
+        full = agg["n"].max()
+        bad = agg[(agg["n"] < full) | agg["total"].isna()]
+        if len(bad):
+            log.warning("margin 丢弃交易所数不足 %d 的日期: %s", full, list(bad.index))
+        agg = agg.drop(bad.index)
+        out = pd.DataFrame({"trade_date": agg.index, "balance": agg["total"].values / 1e8})
+        return out.sort_values("trade_date").reset_index(drop=True)
 
     def limit_counts(self, trade_date):
         """涨跌停家数 {up, down}；空表 → 均为 None。"""
@@ -276,8 +314,16 @@ class TushareSource:
                 mid = a + (b - a) / 2
                 fetch(a, mid)
                 fetch(mid, b)
-            elif not df.empty and all(c in df.columns for c in cols):
-                frames.append(df[cols])
+                return
+            if len(df) >= _NEWS_PAGE_LIMIT:
+                log.warning("major_news 窗口 %s ~ %s 已达最小窗口仍返回 >= %d 行，结果可能被截断",
+                            a.strftime(_NEWS_FMT), b.strftime(_NEWS_FMT), _NEWS_PAGE_LIMIT)
+            if df.empty:
+                return
+            if not all(c in df.columns for c in cols):
+                log.warning("major_news 返回缺少预期列，该窗口按空数据处理")
+                return
+            frames.append(df[cols])
 
         a = s
         while a < e:
