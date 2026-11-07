@@ -62,7 +62,7 @@ def test_build_demo_end_to_end(tmp_path):
     assert len(data["fingerprint"]["groups"]) == 4
     assert data["temperature"]["series"] and data["temperature"]["kpis"]["today"] is not None
     assert data["concentration"]["date"] == DATE and len(data["concentration"]["rows"]) == 14
-    assert data["news"]["domestic"] and data["news"]["external"]
+    assert data["news"] == {"domestic": [], "external": [], "status": "disabled", "since": None}
     assert isinstance(data["meta"]["warnings"], list)
     assert "TUSHARE_TOKEN" not in html
 
@@ -364,12 +364,31 @@ class RaisingNews(DemoSource):
         raise RuntimeError("boom")
 
 
-def test_news_status_ok(tmp_path):
+class CountingNews(DemoSource):
+    calls = 0
+
+    def major_news(self, start_dt, end_dt, max_calls=None):
+        CountingNews.calls += 1
+        return super().major_news(start_dt, end_dt)
+
+
+def test_news_disabled_skips_fetch_and_page_section(tmp_path, monkeypatch):
+    monkeypatch.setattr(build.config, "NEWS_ENABLED", False)
+    CountingNews.calls = 0
+    _, data = run(tmp_path, CountingNews(), monkeypatch=monkeypatch)
+    assert CountingNews.calls == 0  # 下线期间不消耗 major_news 配额
+    assert data["news"]["status"] == "disabled"
+
+
+def test_news_status_ok(tmp_path, monkeypatch):
+    monkeypatch.setattr(build.config, "NEWS_ENABLED", True)
     _, data = run(tmp_path)
     assert data["news"]["status"] == "ok" and data["news"]["since"] is None
+    assert data["news"]["domestic"] and data["news"]["external"]
 
 
 def test_news_status_failed_and_partial(tmp_path, monkeypatch):
+    monkeypatch.setattr(build.config, "NEWS_ENABLED", True)
     _, data = run(tmp_path, FailedNews(), monkeypatch=monkeypatch)
     assert data["news"]["status"] == "failed" and data["news"]["domestic"] == []
     _, data = run(tmp_path, PartialNews(), monkeypatch=monkeypatch)
@@ -378,6 +397,7 @@ def test_news_status_failed_and_partial(tmp_path, monkeypatch):
 
 
 def test_news_status_failed_when_source_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(build.config, "NEWS_ENABLED", True)
     _, data = run(tmp_path, RaisingNews(), monkeypatch=monkeypatch)
     assert data["news"]["status"] == "failed" and data["news"]["external"] == []
 

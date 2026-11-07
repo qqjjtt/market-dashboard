@@ -633,6 +633,8 @@ def _fingerprint(c: Ctx, closes: dict, all_days: list[str], yday: str | None) ->
 # ------------------------------------------------------------------ 新闻
 
 def _news(c: Ctx, date: str) -> dict:
+    if not config.NEWS_ENABLED:
+        return {"domestic": [], "external": [], "status": "disabled", "since": None}
     end = min(c.now.replace(tzinfo=None), datetime.strptime(date, "%Y%m%d") + timedelta(days=1, seconds=-1))
     start = end - timedelta(days=config.NEWS_DAYS)
     fmt = "%Y-%m-%d %H:%M:%S"

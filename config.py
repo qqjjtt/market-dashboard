@@ -72,6 +72,7 @@ US_INDICES = [("SPX", "标普500"), ("IXIC", "纳指"), ("DJI", "道指")]
 VOTE = dict(turnover_hi=1.10, turnover_lo=0.90, margin_pct=0.5, shibor_bp=5, loose=2, tight=-2)
 RATE_BAND_BP = 10
 
+NEWS_ENABLED = False  # 新闻时间线暂时下线（2026-11-07）：不调用 major_news、页面不显示；改回 True 即恢复
 NEWS_DAYS = 7
 NEWS_MAX_CALLS = 8  # 单次构建最多调用 major_news 次数；账号限额 40 次/天、30 次/小时，每天 3 次构建需留余量
 # 新闻只留影响资金流动性的标题（metrics_liquidity.filter_news）：先按地区分边，再看关键词。

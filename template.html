@@ -617,10 +617,12 @@ function renderLiquidity(root) {
   b.appendChild(po);
   renderPolicyOps(b, DATA.policy_ops);
 
-  var nw = el("div", "sub-head", "新闻时间线");
-  nw.appendChild(el("small", null, "最近 7 个自然日 · 按关键词过滤"));
-  b.appendChild(nw);
-  renderNews(b, DATA.news);
+  if (!DATA.news || DATA.news.status !== "disabled") {   /* 新闻暂时下线时整块不显示 */
+    var nw = el("div", "sub-head", "新闻时间线");
+    nw.appendChild(el("small", null, "最近 7 个自然日 · 只留影响资金流动性的标题"));
+    b.appendChild(nw);
+    renderNews(b, DATA.news);
+  }
   root.appendChild(sec.root);
 }
 
