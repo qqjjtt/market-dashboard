@@ -563,7 +563,8 @@ def test_dr001_spread_follows_policy_rate_effective_date(tmp_path):
     assert main(["--demo", "--out", str(out), "--date", "20261030"]) == 0
     d0 = json.loads(extract_data_json(out.read_text(encoding="utf-8")))
     c0 = next(c for c in d0["liquidity"]["macro"] if c["key"] == "dr001_spread")
-    assert c0["value"] is None
+    # 政策利率表现在从 2024-07-22 起有锚：11-02 换锚前按当时的 7 天逆回购 1.40% 计算，换锚后按 1.25%
+    assert c0["value"] is not None and c0["date"] == "20261030"
     assert next(c for c in d0["liquidity"]["macro"] if c["key"] == "dr007")["value"] is not None
 
 

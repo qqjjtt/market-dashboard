@@ -78,7 +78,46 @@ GOLD_CODE = "Au99.99"  # 上金所现货，元/克
 OIL_CODE = "SC.INE"  # 上期能源原油主力，元/桶（同 T.CFX 写法）
 # 政策利率锚：(生效日, 利率 %, 名称)。2026-11-02 起央行以隔夜逆回购为短端锚（公告 2026-10-30），
 # 7 天逆回购改为利率招标、不再固定利率。央行调整时在末尾追加一行（手工更新）。
-POLICY_RATES = [("20261102", 1.25, "隔夜逆回购")]
+POLICY_RATES = [
+    ("20240722", 1.70, "7天逆回购"),
+    ("20240927", 1.50, "7天逆回购"),
+    ("20250508", 1.40, "7天逆回购"),
+    ("20261102", 1.25, "隔夜逆回购"),
+]
+
+# ---------- 流动性指数（0=极度紧张，100=极度宽松；规则见 README「流动性指数」）----------
+GAUGE_ZONES = [(0, 25, "极度紧张"), (25, 45, "偏紧"), (45, 55, "中性"), (55, 75, "偏松"), (75, 100, "极度宽松")]
+GAUGE = dict(n=5, window=250, min_obs=120, floor_bp=2.0, floor_log=0.001, stale_days=7, z_cond=1.0,
+             combo_need=2, lookback_days=800)
+
+
+def _gc(key, name, group, kind, dir_, unit, hint=""):
+    return {"key": key, "name": name, "hint": hint, "group": group, "kind": kind, "dir": dir_, "unit": unit}
+
+
+GAUGE_COMPONENTS = [
+    _gc("dr001_spread", "DR001−政策利率", "domestic", "bp_level", -1, "bp"),
+    _gc("r007_dr007", "R007−DR007", "domestic", "bp_level", -1, "bp"),
+    _gc("bond_fut", "10年国债期货", "domestic", "price", +1, "元", "价格涨 = 收益率降"),
+    _gc("us10y", "美债10年收益率", "external", "pct_level", -1, "%"),
+    _gc("usd", "美元指数", "external", "price", -1, "点", "FXCM"),
+    _gc("cnh", "离岸人民币", "external", "price", -1, "元/美元", "数值涨 = 人民币贬"),
+    _gc("hy_oas", "高收益债利差", "external", "pct_level", -1, "%"),
+    _gc("sofr_iorb", "SOFR−IORB", "external", "bp_level", -1, "bp", "美元回购压力"),
+    _gc("brent", "布伦特原油", "external", "price", -1, "美元/桶"),
+    _gc("gold", "黄金", "ref", "price", 0, "元/克", "上金所 Au99.99"),
+    _gc("sc_oil", "上海原油", "ref", "price", 0, "元/桶", "上海原油主力"),
+]
+
+GAUGE_COMBOS = [
+    {"key": "domestic_tight", "name": "国内资金收紧",
+     "conds": [("dr001_spread", +1, "DR001−政策利率走阔"), ("r007_dr007", +1, "R007−DR007 走阔"),
+               ("bond_fut", -1, "国债期货下跌")]},
+    {"key": "external_tight", "name": "外部收紧",
+     "conds": [("us10y", +1, "美债收益率上行"), ("usd", +1, "美元走强"), ("cnh", +1, "人民币走弱")]},
+    {"key": "risk_off", "name": "避险",
+     "conds": [("bond_fut", +1, "国债期货上涨"), ("gold", +1, "黄金上涨"), ("hy_oas", +1, "高收益债利差走阔")]},
+]
 A_INDICES = [("000001.SH", "上证指数"), ("399001.SZ", "深证成指"), ("399006.SZ", "创业板指"),
              ("000688.SH", "科创50"), ("000300.SH", "沪深300")]
 US_INDICES = [("SPX", "标普500"), ("IXIC", "纳指"), ("DJI", "道指")]
