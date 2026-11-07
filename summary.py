@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import math
 
+import config
+
 MINUS = "−"
 _DIR_WORD = {1: "松", 0: "平", -1: "紧"}
 
@@ -93,7 +95,7 @@ def _team_card(team_last3: list[float], team_asof: str | None, round_total: floa
     vals = [float(v) for v in team_last3 if _ok(v)]
     label, tone = national_team_verdict(vals)
     if not vals:
-        return _card("team", "国家队", "暂无已披露数据", "沪市 11 只核心 ETF 净申赎", "gray")
+        return _card("team", "国家队", "暂无已披露数据", f"{config.TEAM_NAME} ETF 净申赎", "gray")
     total = sum(vals)
     n = len(vals)
     if label == "仍在":

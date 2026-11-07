@@ -235,6 +235,23 @@ def _indices(c: Ctx) -> list[dict]:
     return out
 
 
+def _commodities(c: Ctx) -> list[dict]:
+    """当日金价、油价：最新收盘与较前一根的涨跌幅（%）；取不到 → 各值 None。"""
+    start = c.days[max(0, len(c.days) - 10)] if c.days else c.D
+    out = []
+    for key, name, unit, fn in (("gold", "黄金", "元/克", c.src.gold_spot), ("oil", "原油", "元/桶", c.src.crude_fut)):
+        s = _ser(_fetch(f"{name}（{unit}）", fn, start, c.D), "trade_date", "close")
+        if len(s):
+            s = s[s.index <= c.D]
+        close = pct = date = None
+        if len(s):
+            close, date = float(s.iloc[-1]), str(s.index[-1])
+            if len(s) >= 2 and s.iloc[-2]:
+                pct = float((s.iloc[-1] / s.iloc[-2] - 1) * 100)
+        out.append({"key": key, "name": name, "unit": unit, "close": close, "pct_chg": pct, "date": date})
+    return out
+
+
 def _vote_inputs(totals: pd.Series, D: str, margin: pd.Series, flow: pd.Series, w1: pd.Series):
     turnover = None
     if D in totals.index and pd.notna(totals[D]):
@@ -547,7 +564,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     if not all_days:
         all_days = list(c.days)
 
-    codes = list(dict.fromkeys(config.FIXED_BROAD + config.BROAD10 + config.INDUSTRY6))
+    codes = list(dict.fromkeys(config.HUIJIN6 + config.BROAD10 + config.INDUSTRY6))
     shares, closes = {}, {}
     for code in codes:
         sh = _fetch(f"ETF {code} 份额", src.etf_share, code, fetch_start, D, note="，该只份额已跳过")
@@ -564,24 +581,22 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     net = me.net_flow(share_w, close_w) if len(both) else pd.DataFrame(index=all_days)
     net = net[net.index >= win_start]
 
-    fixed = [x for x in config.FIXED_BROAD if x in net.columns]
-    sh11 = [x for x in config.SH11 if x in net.columns]
-    daily_fixed = me.aggregate(net[fixed], config.DISCLOSURE_MIN) if fixed else pd.Series(np.nan, index=net.index)
-    daily_sh = me.aggregate(net[sh11], config.DISCLOSURE_MIN) if sh11 else pd.Series(np.nan, index=net.index)
+    team = [x for x in config.HUIJIN6 if x in net.columns]
+    daily_sh = me.aggregate(net[team], config.DISCLOSURE_MIN) if team else pd.Series(np.nan, index=net.index)
 
     # --- 本轮
     start = round_start or config.ROUND_START
     if not start:
         thr = _shift(D, -ROUND_BACK_DAYS)
         start = next((d for d in all_days if d >= thr), thr)
-    rnd = me.round_summary(daily_fixed, start, config.ATTRIBUTION, len(fixed))
+    rnd = me.round_summary(daily_sh, start, config.ATTRIBUTION, len(team))
     if rnd["total"] is None or rnd["total"] <= 0:
         rnd["low"] = rnd["high"] = rnd["mid"] = None
     out["round"] = rnd
     out["round_total"] = rnd["total"]
-    out["monthly"] = me.monthly_totals(daily_fixed, config.MONTHLY_MONTHS)
+    out["monthly"] = me.monthly_totals(daily_sh, config.MONTHLY_MONTHS)
 
-    # --- 国家队（沪市 11 只）
+    # --- 国家队（汇金重仓 6 只）
     s = daily_sh.dropna()
     out["team_last3"] = [float(v) for v in s.tail(3).tolist()][::-1]
     out["team_asof"] = str(s.index[-1]) if len(s) else None
@@ -597,7 +612,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
         "index_close": [_num(v) for v in idx_close],
         "per_etf": [{"code": code, "name": names.get(code, code),
                      "share": [_num(v) for v in share_w.loc[share_w.index >= flow_start, code]]}
-                    for code in config.SH11 if code in share_w.columns],
+                    for code in config.HUIJIN6 if code in share_w.columns],
     }
 
     # --- 成交指纹（尾盘占比与指纹各自兜底：任何一块失败都不能拖垮上面已算好的国家队净申赎）
@@ -706,6 +721,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
     etf = _safe("ETF", lambda: _etf(c, round_start), _default_etf)
     news = _safe("新闻", lambda: _news(c, date), lambda: {"domestic": [], "external": [], "status": "failed", "since": None})
     indices = _safe("指数", lambda: _indices(c), list)
+    commodities = _safe("金价油价", lambda: _commodities(c), list)
     policy = _safe("政策工具表", lambda: ml.load_policy_ops(str(POLICY_CSV)), list)
 
     fed_card = next((x for x in liquidity["external"] if x["key"] == "fed_net"), {})
@@ -716,9 +732,11 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
 
     return {
         "meta": {"trade_date": D, "generated_at": now.strftime("%Y-%m-%d %H:%M"), "demo": bool(demo),
+                 "team_pool": config.TEAM_NAME,
                  "sector_mode": sent["mode"], "tail_source": etf["tail_source"], "warnings": []},
         "conclusions": conclusions,
         "indices": indices,
+        "commodities": commodities,
         "liquidity": liquidity,
         "policy_ops": policy,
         "news": news,

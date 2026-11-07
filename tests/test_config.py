@@ -1,8 +1,8 @@
 import config
 def test_lists():
     assert len(config.BROAD10) == 10 and config.BROAD10[:5] == config.CORE5
-    assert len(config.FIXED_BROAD) == 29 and len(set(config.FIXED_BROAD)) == 29
-    assert len(config.SH11) == 11 and all(c.endswith(".SH") for c in config.SH11)
+    assert config.HUIJIN6 == ["510300.SH", "510310.SH", "510330.SH", "159919.SZ", "510050.SH", "510500.SH"]
+    assert config.TEAM_NAME == "汇金重仓 6 只"
 def test_sectors():
     assert len(config.SECTORS) == 14
     assert [s["name"] for s in config.SECTORS if s["dynamic"]] == ["高位连板·情绪核心"]

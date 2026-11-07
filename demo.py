@@ -220,6 +220,14 @@ class DemoSource:
         s = self._slice(self._walk("bondfut", 108.5, 0.0015), start, end)
         return pd.DataFrame({"trade_date": list(s.index), "close": s.to_numpy().round(3)})
 
+    def gold_spot(self, start, end):
+        s = self._slice(self._walk("gold", 620.0, 0.008), start, end)
+        return pd.DataFrame({"trade_date": list(s.index), "close": s.to_numpy().round(2)})
+
+    def crude_fut(self, start, end):
+        s = self._slice(self._walk("crude", 560.0, 0.015), start, end)
+        return pd.DataFrame({"trade_date": list(s.index), "close": s.to_numpy().round(1)})
+
     def fx(self, code, start, end):
         if code not in _FX_BASE:
             return _empty(["trade_date", "close"])

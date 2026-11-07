@@ -295,6 +295,16 @@ class TushareSource:
         return self._fetch("fut_daily", ["trade_date", "close"], ts_code="T.CFX",
                            start_date=start, end_date=end)
 
+    def gold_spot(self, start, end):
+        """上海黄金交易所 Au99.99 现货日线（sge_daily），close：元/克。每日 18–19 点更新。"""
+        return self._fetch("sge_daily", ["trade_date", "close"], ts_code=config.GOLD_CODE,
+                           start_date=start, end_date=end)
+
+    def crude_fut(self, start, end):
+        """上海国际能源交易中心原油主力（fut_daily），close：元/桶。每个交易日 17–18 点更新。"""
+        return self._fetch("fut_daily", ["trade_date", "close"], ts_code=config.OIL_CODE,
+                           start_date=start, end_date=end)
+
     def fx(self, code, start, end):
         """外汇/商品（UKOIL、USDOLLAR、FED30D）。close = bid_close。
         tushare 的最新一根常是刚开盘、尚未收完的残缺日线（实测 UKOIL 20261105 仅 3 笔 tick，

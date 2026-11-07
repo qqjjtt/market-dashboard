@@ -44,6 +44,9 @@ def test_build_demo_end_to_end(tmp_path):
     assert data["meta"]["tail_source"] == "stk_mins·510300" and data["fingerprint"]["tail"]["today"] is not None
     assert data["meta"]["sector_mode"] in ("申万行业", "stock_basic.industry")
     assert len(data["indices"]) == 5
+    com = data["commodities"]
+    assert [(c["key"], c["unit"]) for c in com] == [("gold", "元/克"), ("oil", "元/桶")]
+    assert all(c["close"] is not None and c["pct_chg"] is not None and c["date"] == DATE for c in com)
     liq = data["liquidity"]
     assert [c["key"] for c in liq["domestic"]] == ["turnover", "margin", "main_flow", "limit", "inst"]
     assert [c["key"] for c in liq["macro"]] == ["shibor_on", "shibor_1w", "m2", "bond_fut", "brent"]
@@ -52,11 +55,11 @@ def test_build_demo_end_to_end(tmp_path):
     assert liq["vote"]["label"] in ("偏松", "中性", "偏紧") and len(liq["vote"]["signals"]) == 4
     assert liq["rate_expect"]["label"] != "无数据"
     assert all(c["value"] is not None for k in ("domestic", "macro", "external") for c in liq[k])
-    assert data["round"]["count"] == 29 and data["round"]["start"] <= DATE
+    assert data["round"]["count"] == 6 and data["round"]["start"] <= DATE
     assert len(data["monthly"]) == 6
     assert data["sector_flow"]["date"] == DATE and data["sector_flow"]["day"]["inflow"]
     assert len(data["etf_flow"]["dates"]) == len(data["etf_flow"]["daily"]) == len(data["etf_flow"]["cum"])
-    assert len(data["etf_flow"]["per_etf"]) == 11
+    assert len(data["etf_flow"]["per_etf"]) == 6 and data["meta"]["team_pool"] == "汇金重仓 6 只"
     usd = next(c for c in liq["external"] if c["key"] == "usd")
     assert "FXCM" in usd["note"] and "DXY" in usd["note"]  # 12759 这类点位不是 DXY，须在卡片上写明
     assert len(data["fingerprint"]["groups"]) == 4
@@ -112,7 +115,7 @@ class MissingEtfSource(DemoSource):
 
 def test_build_skips_missing_etf(tmp_path, monkeypatch):
     _, data = run(tmp_path, MissingEtfSource(), monkeypatch=monkeypatch)
-    assert data["round"]["count"] == 28 and any("159919.SZ" in w for w in data["meta"]["warnings"])
+    assert data["round"]["count"] == 5 and any("159919.SZ" in w for w in data["meta"]["warnings"])
 
 
 class DownFred(DemoFred):
@@ -411,7 +414,7 @@ class MalformedMinutes(DemoSource):
 
 def test_tail_failure_does_not_wipe_national_team_block(tmp_path, monkeypatch):
     _, data = run(tmp_path, MalformedMinutes(), monkeypatch=monkeypatch)
-    assert data["etf_flow"]["dates"] and data["round"]["count"] == 29 and len(data["monthly"]) == 6
+    assert data["etf_flow"]["dates"] and data["round"]["count"] == 6 and len(data["monthly"]) == 6
     fp = data["fingerprint"]
     assert fp["tail"] == {"today": None, "yday": None, "source": "无分钟数据"}
     assert fp["groups"] and data["meta"]["tail_source"] == "无分钟数据"
@@ -423,7 +426,7 @@ def test_fingerprint_failure_keeps_flow_block(tmp_path, monkeypatch):
         raise ValueError("bad groups")
     monkeypatch.setattr(build.me, "amount_groups", boom)
     _, data = run(tmp_path, monkeypatch=monkeypatch)
-    assert data["etf_flow"]["dates"] and data["round"]["count"] == 29 and len(data["monthly"]) == 6
+    assert data["etf_flow"]["dates"] and data["round"]["count"] == 6 and len(data["monthly"]) == 6
     assert data["fingerprint"]["groups"] == [] and data["fingerprint"]["tail"]["source"] == "无分钟数据"
     assert any("成交指纹" in w for w in data["meta"]["warnings"])
 
@@ -495,3 +498,31 @@ def test_total_failure_archives_nothing(tmp_path, monkeypatch):
     out = tmp_path / "i.html"
     assert main(["--out", str(out), "--date", DATE, "--archive", str(tmp_path / "history")]) == 3
     assert not (tmp_path / "history").exists()
+
+
+# ---------------------------------------------------------------- 金价、油价
+
+class NoCommoditySource(DemoSource):
+    def gold_spot(self, start, end):
+        raise RuntimeError("无权限")
+
+    def crude_fut(self, start, end):
+        return super().crude_fut(start, end).iloc[0:0]
+
+
+def test_commodities_missing_degrades(tmp_path, monkeypatch):
+    _, data = run(tmp_path, NoCommoditySource(), monkeypatch=monkeypatch)
+    assert [c["key"] for c in data["commodities"]] == ["gold", "oil"]
+    assert all(c["close"] is None and c["pct_chg"] is None and c["date"] is None for c in data["commodities"])
+    assert any("黄金" in w for w in data["meta"]["warnings"])
+
+
+class FlatGoldSource(DemoSource):
+    def gold_spot(self, start, end):
+        return pd.DataFrame({"trade_date": ["20261104", "20261105"], "close": [500.0, 510.0]})
+
+
+def test_commodity_change_from_previous_close(tmp_path, monkeypatch):
+    _, data = run(tmp_path, FlatGoldSource(), monkeypatch=monkeypatch)
+    gold = data["commodities"][0]
+    assert gold["close"] == 510.0 and gold["date"] == "20261105" and gold["pct_chg"] == pytest.approx(2.0)

@@ -453,13 +453,13 @@ function heroBand(p, key, extra) {
 
 /* ================= indices ================= */
 function renderIndices(parent) {
-  var list = Array.isArray(DATA.indices) ? DATA.indices.filter(Boolean) : [];
+  var list = (Array.isArray(DATA.indices) ? DATA.indices : []).concat(Array.isArray(DATA.commodities) ? DATA.commodities : []).filter(Boolean);
   if (!list.length) return;
   var strip = el("div", "card idx-strip");
   var td = (DATA.meta || {}).trade_date;
   list.forEach(function (x) {
     var cell = el("div", "idx");
-    cell.appendChild(el("div", "n", x.name || DASH));
+    cell.appendChild(el("div", "n", (x.name || DASH) + (x.unit ? "（" + x.unit + "）" : "")));
     cell.appendChild(el("div", "v " + dirClass(x.pct_chg), fmtNum(x.close, 2)));
     cell.appendChild(el("div", "p " + dirClass(x.pct_chg), isNum(x.pct_chg) ? arrow(x.pct_chg) + fmtSigned(x.pct_chg, 2) + "%" : DASH));
     if (typeof x.date === "string" && x.date && td && x.date !== td) cell.appendChild(el("span", "d", "截至 " + fmtDay(x.date)));
@@ -556,7 +556,7 @@ function ovSector() {
 }
 function ovTeam() {
   var R = DATA.round || {}, E = DATA.etf_flow || {}, tail = (DATA.fingerprint || {}).tail || {};
-  var n11 = (E.per_etf || []).length || 11;
+  var pool = (DATA.meta || {}).team_pool || ("沪市 " + ((E.per_etf || []).length || 11) + " 只");
   var last3 = (E.daily || []).slice(-3).filter(isNum);
   var sum3 = last3.length ? last3.reduce(function (s, x) { return s + x; }, 0) : null;
   var verdict = ((concl.team && concl.team.text) || "").match(/^[^（(：:，,\s]+/);
@@ -564,11 +564,11 @@ function ovTeam() {
   var cum = (E.cum || []).slice(-40);
   return ovCard("team", verdict ? verdict[0] : DASH, [
     tile("本轮累计（" + (isNum(R.count) ? R.count : DASH) + " 只）", fmtSigned(R.total, 0), "亿", R.start ? "自 " + fmtDay(R.start) : ""),
-    tile("近 3 日（沪市 " + n11 + " 只）", fmtSigned(sum3, 1), "亿", "", dirClass(sum3)),
+    tile("近 3 日（" + pool + "）", fmtSigned(sum3, 1), "亿", "", dirClass(sum3)),
     tile("尾盘占比", noTail ? DASH : fmtNum(tail.today, 1), "%", noTail ? "" : "昨 " + fmtNum(tail.yday, 1) + "%")
   ], function (a) {
     if (!sparkBox(a, cum, C.up, "亿元", 0)) noTrend(a);
-  }, "沪市 " + n11 + " 只 ETF 累计净申赎，近 " + cum.length + " 日");
+  }, pool + " ETF 累计净申赎，近 " + cum.length + " 日");
 }
 function ovRetail() {
   var T = DATA.temperature || {}, K = T.kpis || {}, Cn = DATA.concentration || {};
@@ -845,14 +845,14 @@ function etfOption(E, mode, narrow) {
   }
   return opt;
 }
-function teamChart(body, E, n11) {
+function teamChart(body, E, pool) {
   var mode = "daily", chart = null;
   var seg = makeSegmented([{ key: "daily", label: "单日净申赎" }, { key: "cum", label: "累计净申购" }, { key: "share", label: "单只份额" }], "daily",
     function (k) { mode = k; draw(); });
   var card = el("div", "card chart-card"), box = el("div"), head = el("div", "card-head");
   box.id = "etf-chart";
   var lt = el("div");
-  add(lt, el("h3", null, "沪市 " + n11 + " 只核心 ETF · 资金流向与指数背离"),
+  add(lt, el("h3", null, pool + " ETF · 资金流向与指数背离"),
     el("p", "sub-line", "每日净申赎（亿元），正为流入；净申赎 = Δ份额 × 当日收盘价"));
   add(head, lt, seg);
   add(card, head, box);
@@ -1007,7 +1007,7 @@ function fingerprintCard(body) {
 }
 function renderTeam(p) {
   var E = DATA.etf_flow || {}, R = DATA.round || {};
-  var n11 = (E.per_etf || []).length || 11;
+  var pool = (DATA.meta || {}).team_pool || ("沪市 " + ((E.per_etf || []).length || 11) + " 只");
   guard(p, function () { heroBand(p, "team"); });
   guard(p, function () {
     var daily = E.daily || [], dates = E.dates || [];
@@ -1020,7 +1020,7 @@ function renderTeam(p) {
     var cnt = isNum(R.count) ? R.count : DASH;
     add(g,
       tile("本轮累计（" + cnt + " 只）", fmtSigned(R.total, 0), "亿", fmtDay(R.start) + (R.end ? "–" + fmtDay(R.end) : "")),
-      tile("近 3 日（沪市 " + n11 + " 只）", fmtSigned(sum3, 1), "亿",
+      tile("近 3 日（" + pool + "）", fmtSigned(sum3, 1), "亿",
         idx.map(function (i) { return fmtDay(dates[i]) + " " + fmtSigned(daily[i], 0); }).join(" · "), dirClass(sum3)));
     if (isNum(R.low) && isNum(R.high)) {
       var ar = R.attribution, hasAr = Array.isArray(ar) && ar.length === 2 && isNum(ar[0]) && isNum(ar[1]);
@@ -1029,7 +1029,7 @@ function renderTeam(p) {
     }
     p.appendChild(g);
   });
-  guard(p, function () { secTitle(p, "ETF 净申赎", "沪市 " + n11 + " 只 · 三种视图共用同一日期轴"); teamChart(p, E, n11); });
+  guard(p, function () { secTitle(p, "ETF 净申赎", pool + ((DATA.meta || {}).team_pool ? " · 159919 为深市、份额晚一天披露，最新一日暂按 5 只合计" : " · 三种视图共用同一日期轴")); teamChart(p, E, pool); });
   guard(p, function () {
     secTitle(p, "本轮与成交指纹");
     var two = el("div", "two-col");
