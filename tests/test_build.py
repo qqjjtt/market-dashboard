@@ -130,6 +130,26 @@ def test_build_skips_missing_etf(tmp_path, monkeypatch):
     assert data["round"]["count"] == 5 and any("159919.SZ" in w for w in data["meta"]["warnings"])
 
 
+def test_holdings_payload(tmp_path):
+    _, data = run(tmp_path)
+    h = data["holdings"]
+    assert h["base_date"] == "20251231"
+    assert [r["code"] for r in h["rows"]] == config.HUIJIN6
+    assert all(r["est"] is not None and r["value"] is not None for r in h["rows"])
+    assert isinstance(h["total"], float)
+    assert h["total"] == pytest.approx(sum(r["value"] for r in h["rows"]), abs=0.5)
+    assert h["date"] is not None and h["prev_total"] is not None
+    assert h["change"] == pytest.approx(h["total"] - h["prev_total"], abs=0.2)
+
+
+def test_holdings_missing_etf(tmp_path, monkeypatch):
+    _, data = run(tmp_path, MissingEtfSource(), monkeypatch=monkeypatch)
+    rows = {r["code"]: r for r in data["holdings"]["rows"]}
+    assert rows["159919.SZ"]["est"] is None and rows["159919.SZ"]["value"] is None
+    assert rows["159919.SZ"]["base"] == 354.98
+    assert isinstance(data["holdings"]["total"], float)
+
+
 class DownFred(DemoFred):
     def series(self, series_id, start):
         return None

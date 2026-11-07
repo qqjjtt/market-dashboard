@@ -228,3 +228,41 @@ def volume_spikes(amount: pd.DataFrame, net: pd.DataFrame, today: str, names: di
                         "net": n_val, "net_date": n_date, "flow_ratio": f_ratio})
     out.sort(key=lambda x: max(x["amount_ratio"] or 0, x["flow_ratio"] or 0), reverse=True)
     return out
+
+
+HOLDINGS_COLS = ["total", "est", "close", "value"]
+
+
+def estimate_holdings(share: pd.Series, close: pd.Series, base_shares: float, base_date: str) -> pd.DataFrame:
+    """估算某一机构持有的份额与市值（亿份 / 亿元）。
+
+    起点：base_date 当日或之前最后一个份额（没有则取之后第一个）；起点估算 = min(base_shares, 当日总份额)。
+    之后每个有份额的日子，把总份额的变化全部算作该机构的申赎，逐日滚动并限制在 [0, 当日总份额]。
+    份额缺失的日子跳过；收盘价缺失时沿用之前最近的收盘，仍缺则市值为 NaN。
+    """
+    empty = pd.DataFrame(columns=HOLDINGS_COLS, dtype=float)
+    if share is None or len(share) == 0:
+        return empty
+    sh = pd.Series(share).dropna().astype(float)
+    sh = sh[~sh.index.duplicated(keep="last")].sort_index()
+    if sh.empty:
+        return empty
+    sh.index = sh.index.astype(str)
+    before = [d for d in sh.index if d <= base_date]
+    start = before[-1] if before else sh.index[0]
+    sh = sh[sh.index >= start]
+    est, prev_s, prev_e = [], None, None
+    for s in sh.to_numpy():
+        if prev_s is None:
+            e = min(float(base_shares), s)
+        else:
+            e = min(max(prev_e + (s - prev_s), 0.0), s)
+        est.append(e)
+        prev_s, prev_e = s, e
+    px = pd.Series(dtype=float) if close is None else pd.Series(close).dropna().astype(float)
+    px = px[~px.index.duplicated(keep="last")].sort_index()
+    px.index = px.index.astype(str)
+    cl = px.reindex(px.index.union(sh.index)).ffill().reindex(sh.index) if len(px) else pd.Series(np.nan, index=sh.index)
+    out = pd.DataFrame({"total": sh, "est": est, "close": cl})
+    out["value"] = out["est"] * out["close"]
+    return out

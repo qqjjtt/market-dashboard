@@ -5,6 +5,7 @@ import pytest
 from metrics_etf import (
     aggregate,
     amount_groups,
+    estimate_holdings,
     fingerprint_conclusion,
     monthly_totals,
     net_flow,
@@ -245,3 +246,47 @@ def test_volume_spikes_sorted_by_strength_and_missing_today():
     out = volume_spikes(amount, net, days[-1], {})
     assert [s["code"] for s in out] == ["B", "A"]
     assert volume_spikes(amount, net, "20991231", {}) == []
+
+
+def _days(n, start=20251231):
+    return [str(start + i) for i in range(n)]
+
+
+def test_estimate_holdings_rolls_and_clamps():
+    d = _days(5)
+    share = pd.Series([500.0, 450.0, 400.0, 50.0, 80.0], index=d)
+    close = pd.Series([1.0, 1.0, 1.0, 1.0, 2.0], index=d)
+    out = estimate_holdings(share, close, 100.0, d[0])
+    assert list(out.columns) == ["total", "est", "close", "value"]
+    assert out["est"].tolist() == pytest.approx([100, 50, 0, 0, 30])
+    assert out["value"].iloc[-1] == pytest.approx(60.0)
+
+
+def test_estimate_holdings_caps_at_total():
+    d = _days(2)
+    out = estimate_holdings(pd.Series([200.0, 150.0], index=d), pd.Series([1.0, 1.0], index=d), 300.0, d[0])
+    assert out["est"].tolist() == pytest.approx([200, 150])
+
+
+def test_estimate_holdings_base_before_data():
+    d = _days(3, 20260105)
+    share = pd.Series([100.0, 90.0, 95.0], index=d)
+    close = pd.Series([2.0, 2.0, 2.0], index=d)
+    out = estimate_holdings(share, close, 50.0, "20251231")
+    assert out.index[0] == d[0]
+    assert out["est"].tolist() == pytest.approx([50, 40, 45])
+
+
+def test_estimate_holdings_uses_last_share_on_or_before_base_and_ffills_close():
+    share = pd.Series([100.0, 120.0, 130.0], index=["20251229", "20260102", "20260105"])
+    close = pd.Series([3.0], index=["20251230"])
+    out = estimate_holdings(share, close, 80.0, "20251231")
+    assert out.index.tolist() == ["20251229", "20260102", "20260105"]
+    assert out.index[0] == "20251229"
+    assert out["est"].tolist() == pytest.approx([80, 100, 110])
+    assert out["close"].tolist()[1:] == pytest.approx([3.0, 3.0])
+
+
+def test_estimate_holdings_empty():
+    out = estimate_holdings(pd.Series(dtype=float), pd.Series(dtype=float), 100.0, "20251231")
+    assert out.empty and list(out.columns) == ["total", "est", "close", "value"]

@@ -1315,6 +1315,32 @@ function fingerprintCard(body) {
   if (groups.length) card.appendChild(el("p", "note-foot", "虚线 = 100%（与昨日持平）。" + (F.footnote || "")));
   body.appendChild(card);
 }
+function renderHoldings(parent, H) {
+  var card = el("div", "card");
+  var wrap = el("div", "tbl-wrap"), t = el("table", "ops"), thead = el("thead"), tr = el("tr");
+  [["ETF", ""], ["年末持有（亿份）", "r"], ["估算持有（亿份）", "r"], ["当前总份额（亿份）", "r"], ["市值（亿元）", "r"]].forEach(function (h) { tr.appendChild(el("th", h[1], h[0])); });
+  thead.appendChild(tr); t.appendChild(thead);
+  var tb = el("tbody");
+  H.rows.forEach(function (r) {
+    if (!r) return;
+    var row = el("tr"), nm = el("td");
+    add(nm, el("div", null, r.name || DASH), el("div", "muted", r.code || ""));
+    row.appendChild(nm);
+    row.appendChild(el("td", "r tnum", isNum(r.base) ? fmtNum(r.base, 1) : DASH));
+    row.appendChild(el("td", "r tnum", isNum(r.est) ? fmtNum(r.est, 1) : DASH));
+    row.appendChild(el("td", "r tnum", isNum(r.total_shares) ? fmtNum(r.total_shares, 1) : DASH));
+    row.appendChild(el("td", "r tnum", isNum(r.value) ? fmtNum(r.value, 1) : DASH));
+    tb.appendChild(row);
+  });
+  var sum = el("tr");
+  sum.appendChild(el("td", null, "合计"));
+  sum.appendChild(el("td", "r tnum", DASH));
+  sum.appendChild(el("td", "r tnum", DASH));
+  sum.appendChild(el("td", "r tnum", DASH));
+  sum.appendChild(el("td", "r tnum", isNum(H.total) ? fmtNum(H.total, 1) : DASH));
+  tb.appendChild(sum);
+  t.appendChild(tb); wrap.appendChild(t); card.appendChild(wrap); parent.appendChild(card);
+}
 function renderTeam(p) {
   var E = DATA.etf_flow || {}, R = DATA.round || {};
   var pool = (DATA.meta || {}).team_pool || ("沪市 " + ((E.per_etf || []).length || 11) + " 只");
@@ -1337,9 +1363,20 @@ function renderTeam(p) {
       add(g, tile("回补估算（" + cnt + " 只）", fmtNum(R.low, 0) + "–" + fmtNum(R.high, 0), "亿",
         hasAr ? "归因 " + Math.round(ar[0] * 100) + "%–" + Math.round(ar[1] * 100) + "%（假设）" : "归因比例为假设"));
     }
+    var H = DATA.holdings;
+    if (H && typeof H === "object" && !Array.isArray(H)) {
+      add(g, tile("汇金持仓（估算）", isNum(H.total) ? fmtNum(H.total, 0) : DASH, "亿",
+        "较前一交易日 " + (isNum(H.change) ? fmtSigned(H.change, 0) + " 亿" : DASH), dirClass(H.change)));
+    }
     p.appendChild(g);
   });
   guard(p, function () { secTitle(p, "ETF 净申赎", pool + ((DATA.meta || {}).team_pool ? " · 159919 为深市、份额晚一天披露，最新一日暂按 5 只合计" : " · 三种视图共用同一日期轴")); teamChart(p, E, pool); });
+  guard(p, function () {
+    var H = DATA.holdings;
+    if (!H || !Array.isArray(H.rows) || !H.rows.length) return;
+    secTitle(p, "汇金持仓估算", "按 2025 年末披露份额估算，误差可能较大");
+    renderHoldings(p, H);
+  });
   guard(p, function () {
     var W = DATA.watch || {};
     secTitle(p, "观察池天量", (isNum(W.count) ? W.count + " 只" : "观察池") + " · 不计入上面的判断");

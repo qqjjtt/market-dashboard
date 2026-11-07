@@ -756,7 +756,13 @@ def _default_etf():
             "fingerprint": {"date": None, "groups": [], "tail": {"today": None, "yday": None, "source": "无分钟数据"},
                             "conclusion": {"big": None, "small": "", "text": ""}, "footnote": ""},
             "team_last3": [], "team_asof": None, "round_total": None, "tail_source": "无分钟数据",
-            "watch": {"count": len(config.WATCH_ETF), "date": None, "spikes": []}}
+            "watch": {"count": len(config.WATCH_ETF), "date": None, "spikes": []},
+            "holdings": _empty_holdings()}
+
+
+def _empty_holdings():
+    return {"base_date": config.HUIJIN_BASE_DATE, "date": None, "total": None, "prev_total": None,
+            "change": None, "rows": []}
 
 
 def _etf(c: Ctx, round_start: str | None) -> dict:
@@ -775,9 +781,11 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
 
     codes = list(dict.fromkeys(config.HUIJIN6 + config.BROAD10 + config.INDUSTRY6 + config.WATCH_ETF))
     shares, closes = {}, {}
+    hold_start = min(fetch_start, _shift(config.HUIJIN_BASE_DATE, -10))  # 汇金持仓估算需要从年末起算
     for code in codes:
-        sh = _fetch(f"ETF {code} 份额", src.etf_share, code, fetch_start, D, note="，该只份额已跳过")
-        dy = _fetch(f"ETF {code} 日线", src.etf_daily, code, fetch_start, D, note="，该只日线已跳过")
+        st = hold_start if code in config.HUIJIN6 else fetch_start
+        sh = _fetch(f"ETF {code} 份额", src.etf_share, code, st, D, note="，该只份额已跳过")
+        dy = _fetch(f"ETF {code} 日线", src.etf_daily, code, st, D, note="，该只日线已跳过")
         if isinstance(sh, pd.DataFrame) and not sh.empty:
             shares[code] = sh
         if isinstance(dy, pd.DataFrame) and not dy.empty:
@@ -833,6 +841,12 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
         return {"count": len(config.WATCH_ETF), "date": D, "spikes": spikes}
     out["watch"] = _safe("观察池天量", _watch, lambda: _default_etf()["watch"])
 
+    # --- 汇金持仓估算（失败只影响这一块）
+    prev_day = [d for d in all_days if d < D]
+    out["holdings"] = _safe("汇金持仓估算",
+                            lambda: _holdings(shares, closes, names, D, prev_day[-1] if prev_day else None),
+                            _empty_holdings)
+
     # --- 成交指纹（尾盘占比与指纹各自兜底：任何一块失败都不能拖垮上面已算好的国家队净申赎）
     prev = [d for d in all_days if d < D]
     yday = prev[-1] if prev else None
@@ -840,6 +854,42 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
                                lambda: _default_etf()["fingerprint"])
     out["tail_source"] = out["fingerprint"]["tail"]["source"]
     return out
+
+
+def _holdings(shares: dict, closes: dict, names: dict, D: str, prev_day: str | None) -> dict:
+    """汇金在 HUIJIN6 上的持仓估算（亿份 / 亿元）。某只取不到份额 → 该行为空、不计入合计。"""
+    rows, latest, prev_vals = [], [], []
+    for code in config.HUIJIN6:
+        row = {"code": code, "name": names.get(code, code), "base": config.HUIJIN_HOLDINGS.get(code),
+               "est": None, "total_shares": None, "close": None, "value": None, "date": None}
+        rows.append(row)
+        sh = _ser(shares.get(code), "trade_date", "share")
+        if sh.empty or row["base"] is None:
+            continue
+        sh = sh[sh.index <= D]
+        px = _ser(closes.get(code), "trade_date", "close")
+        if not px.empty:
+            px = px[px.index <= D]
+        est = me.estimate_holdings(sh, px, row["base"], config.HUIJIN_BASE_DATE)
+        if est.empty:
+            continue
+        last = est.iloc[-1]
+        row.update(est=round(float(last["est"]), 2), total_shares=round(float(last["total"]), 2),
+                   close=_num(last["close"]), value=_num(last["value"]), date=str(est.index[-1]))
+        if row["value"] is not None:
+            row["value"] = round(row["value"], 2)
+            latest.append(float(last["value"]))
+        if prev_day:
+            before = est[est.index <= prev_day]["value"].dropna()
+            if len(before):
+                prev_vals.append(float(before.iloc[-1]))
+    total = round(sum(latest), 1) if latest else None
+    prev_total = round(sum(prev_vals), 1) if prev_vals else None
+    dates = [r["date"] for r in rows if r["date"]]
+    return {"base_date": config.HUIJIN_BASE_DATE, "date": max(dates) if dates else None, "total": total,
+            "prev_total": prev_total,
+            "change": round(total - prev_total, 1) if total is not None and prev_total is not None else None,
+            "rows": rows}
 
 
 def _fingerprint(c: Ctx, closes: dict, all_days: list[str], yday: str | None) -> dict:
@@ -969,6 +1019,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
         "monthly": etf["monthly"],
         "fingerprint": etf["fingerprint"],
         "watch": etf["watch"],
+        "holdings": etf["holdings"],
         "temperature": sent["temperature"],
         "concentration": sent["concentration"],
     }
