@@ -100,6 +100,25 @@ class DemoSource:
         days = [d for d in _BDAYS if d <= end]
         return days[-n:]
 
+    def trade_days_between(self, start, end):
+        return _days_between(start, end)
+
+    def fut_mapping(self, code, start, end):
+        """主力合约每季（3、6、9、12 月第二个周五）换一次，代码形如 T2612.CFX / SC2612.INE。"""
+        cols = ["trade_date", "mapping_ts_code"]
+        head, _, tail = code.partition(".")
+        switches = [("20000101", "2312")]
+        for y in range(2024, 2031):
+            for m in (3, 6, 9, 12):
+                d = pd.Timestamp(y, m, 1)
+                d += pd.Timedelta(days=(4 - d.weekday()) % 7 + 7)
+                switches.append((d.strftime("%Y%m%d"), f"{y % 100:02d}{m:02d}"))
+        days = _days_between(start, end)
+        if not days:
+            return _empty(cols)
+        codes = [f"{head}{[tag for eff, tag in switches if eff <= d][-1]}.{tail}" for d in days]
+        return pd.DataFrame({"trade_date": days, "mapping_ts_code": codes})
+
     def stock_daily(self, trade_date):
         cols = ["ts_code", "pct_chg", "amount"]
         if trade_date not in _BDAY_SET:

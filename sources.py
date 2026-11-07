@@ -150,6 +150,13 @@ class TushareSource:
         days = sorted(df["cal_date"].astype(str))
         return days[-n:]
 
+    def trade_days_between(self, start, end):
+        """[start, end] 内的 SSE 开市日，升序，YYYYMMDD；end 可晚于今天（含未来已公布的日历）。"""
+        df = self.call("trade_cal", exchange="SSE", start_date=start, end_date=end, is_open=1)
+        if df.empty:
+            return []
+        return sorted(df["cal_date"].astype(str))
+
     def stock_daily(self, trade_date):
         """全市场日线。amount：亿元（tushare 原值为千元，÷1e5）。"""
         df = self._fetch("daily", ["ts_code", "pct_chg", "amount"], trade_date=trade_date,
@@ -307,6 +314,11 @@ class TushareSource:
 
     def bond_fut_10y(self, start, end):
         return self._fetch("fut_daily", ["trade_date", "close"], ts_code="T.CFX",
+                           start_date=start, end_date=end)
+
+    def fut_mapping(self, code, start, end):
+        """主力连续合约每日对应的具体合约（fut_mapping）：用于识别换月日。"""
+        return self._fetch("fut_mapping", ["trade_date", "mapping_ts_code"], ts_code=code,
                            start_date=start, end_date=end)
 
     def gold_spot(self, start, end):

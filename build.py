@@ -20,7 +20,9 @@ import numpy as np
 import pandas as pd
 
 import config
+import expiry
 import metrics_etf as me
+import metrics_gauge as mg
 import metrics_liquidity as ml
 import metrics_sentiment as ms
 from render import archive_json, render
@@ -155,6 +157,7 @@ class Ctx:
     flags: dict = field(default_factory=dict)   # trade_date -> limit_flags DataFrame
     now: datetime = None
     exact_limits: dict = field(default_factory=dict)   # trade_date -> {"up","down"}（limit_list_d 精确值），每日只取一次
+    shared: dict = field(default_factory=dict)  # 面板间复用已取到的数据（m1 / sf_yoy / fed / cal），避免重复调接口
 
 
 # ------------------------------------------------------------------ 日期
@@ -364,6 +367,9 @@ def _liquidity(c: Ctx) -> dict:
     if config.POLICY_RATES:
         _, pr, pname = config.POLICY_RATES[-1]
         pol_note = f"政策利率 {pname} {pr:g}%"
+    m1_yoy = _ser(m2_df, "month", "m1_yoy")
+    sf_yoy = ml.yoy_pct(_ser(sf_df, "month", "stk_endval"))
+    c.shared["m1"], c.shared["sf_yoy"] = m1_yoy, sf_yoy
     macro = [
         _mk_card("shibor_on", "Shibor隔夜", on, "%"),
         _mk_card("shibor_1w", "Shibor 1W", w1, "%"),
@@ -372,9 +378,9 @@ def _liquidity(c: Ctx) -> dict:
                  note=pol_note),
         _mk_card("r007_dr007", "R007−DR007", ml.spread_bp(r007, dr007), "bp"),
         _mk_card("shibor_1y", "Shibor 1Y", y1, "%", note="同业存单参考"),
-        _mk_card("m1", "M1同比", _ser(m2_df, "month", "m1_yoy"), "%"),
+        _mk_card("m1", "M1同比", m1_yoy, "%"),
         _mk_card("m2", "M2同比", _ser(m2_df, "month", "m2_yoy"), "%"),
-        _mk_card("sf", "社融存量同比", ml.yoy_pct(_ser(sf_df, "month", "stk_endval")), "%"),
+        _mk_card("sf", "社融存量同比", sf_yoy, "%"),
         _mk_card("bond_fut", "10年国债期货", bond, "元", note="价格涨=收益率降"),
         _mk_card("brent", "布伦特原油", brent, "美元/桶", change="pct"),
     ]
@@ -406,6 +412,7 @@ def _external(c: Ctx, start: str):
         log.warning("FRED 序列 %s 无数据，相关外围卡片留空", "、".join(missing))
 
     fed = ml.fed_net_liquidity(raw["WALCL"], raw["WTREGEN"], raw["RRPONTSYD"])
+    c.shared["fed"] = fed
     yields = _fetch("美债收益率", src.us_yields, start, D)
     usd = _ser(_fetch("美元指数", src.fx, "USDOLLAR", start, D), "trade_date", "close")
     gl = _fetch("美股指数", src.global_index, start, D)
@@ -430,6 +437,163 @@ def _external(c: Ctx, start: str):
     f30 = _ser(_fetch("联邦基金期货 FED30D", src.fx, "FED30D", start, D), "trade_date", "close")
     rate = ml.rate_expectation(float(dff.iloc[-1]) if len(dff) else None, float(f30.iloc[-1]) if len(f30) else None)
     return cards, rate
+
+
+# ------------------------------------------------------------------ 流动性指数与到期日提醒
+
+def _cal_days(c: Ctx) -> list[str]:
+    """A 股开市日（D 往前约 1 年 + 往后到下下月初，含未来）。每次构建只取一次，指数历史与到期日提醒共用。"""
+    if "cal" not in c.shared:
+        end = _shift(_month_start(c.D, -2), 10)
+        days = _fetch("交易日历（含未来）", c.src.trade_days_between, _shift(c.D, -372), end)
+        c.shared["cal"] = sorted({str(d) for d in days}) if days else []
+    return c.shared["cal"]
+
+
+def _policy_breaks() -> list[str]:
+    rows = sorted(config.POLICY_RATES)
+    return [rows[i][0] for i in range(1, len(rows)) if rows[i][2] != rows[i - 1][2]]
+
+
+def _contract_breaks(c: Ctx, code: str, start: str) -> list[str]:
+    """主力合约代码发生变化的日期（换月日）；取不到 → 空（不剔除，_fetch 已记告警）。"""
+    df = _fetch(f"{code} 主力合约映射", c.src.fut_mapping, code, start, c.D, note="，不剔除换月")
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return []
+    codes = df.sort_values("trade_date", kind="stable")
+    prev, out = None, []
+    for d, m in zip(codes["trade_date"].astype(str), codes["mapping_ts_code"]):
+        if prev is not None and m != prev:
+            out.append(d)
+        prev = m
+    return out
+
+
+def _fred_long(c: Ctx, sid: str, start_dash: str) -> pd.Series:
+    """FRED 序列（长窗口）→ 字符串日期索引、≤ D、去 NaN；失败 / 无数据 → 空。"""
+    try:
+        s = c.fred.series(sid, start_dash)
+    except Exception as e:  # noqa: BLE001
+        log.warning("FRED %s 获取失败（%s）", sid, type(e).__name__)
+        s = None
+    if s is None or len(s) == 0:
+        log.warning("FRED %s 无数据，流动性指数相关项缺失", sid)
+        return _empty_series()
+    s = pd.to_numeric(s, errors="coerce")
+    s = s[s.index <= pd.Timestamp(c.D)].dropna()
+    s.index = [t.strftime("%Y%m%d") for t in s.index]
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+def _r(x, nd):
+    v = _num(x)
+    return None if v is None else round(v, nd)
+
+
+def _empty_gauge(D: str) -> dict:
+    return {"date": D, "value": None, "zone": None, "domestic": None, "external": None,
+            "text": "数据不足", "reason": "数据不足",
+            "ago": {"prev": None, "w1": None, "m1": None, "y1": None}, "history": [], "components": [],
+            "combos": [], "gate": {"ok": True, "notes": []}}
+
+
+def _gauge_hint(spec: dict, D: str) -> str:
+    if spec["key"] == "dr001_spread":
+        rows = [r for r in sorted(config.POLICY_RATES) if r[0] <= D]
+        if rows:
+            return f"{rows[-1][2]} {rows[-1][1]:g}%"
+    return spec["hint"]
+
+
+def _liquidity_index(c: Ctx) -> dict:
+    src, D, cfg = c.src, c.D, config.GAUGE
+    specs = config.GAUGE_COMPONENTS
+    start = _shift(D, -cfg["lookback_days"])
+    start_dash = f"{start[:4]}-{start[4:6]}-{start[6:]}"
+
+    dr001 = _ser(_fetch("DR001（指数窗口）", src.repo, "DR001.IB", start, D), "trade_date", "rate")
+    dr007 = _ser(_fetch("DR007（指数窗口）", src.repo, "DR007.IB", start, D), "trade_date", "rate")
+    r007 = _ser(_fetch("R007（指数窗口）", src.repo, "R007.IB", start, D), "trade_date", "rate")
+    bond = _ser(_fetch("10年国债期货（指数窗口）", src.bond_fut_10y, start, D), "trade_date", "close")
+    y10 = _ser(_fetch("美债收益率（指数窗口）", src.us_yields, start, D), "date", "y10")
+    fx = {code: _ser(_fetch(f"{code}（指数窗口）", src.fx, code, start, D), "trade_date", "close")
+          for code in ("USDOLLAR", "USDCNH.FXCM", "UKOIL")}
+    gold = _ser(_fetch("黄金（指数窗口）", src.gold_spot, start, D), "trade_date", "close")
+    oil = _ser(_fetch("上海原油（指数窗口）", src.crude_fut, start, D), "trade_date", "close")
+    hy = _fred_long(c, "BAMLH0A0HYM2", start_dash)
+    sofr_iorb = ml.spread_bp(_fred_long(c, "SOFR", start_dash), _fred_long(c, "IORB", start_dash))
+
+    series = {
+        "dr001_spread": ml.policy_spread_bp(dr001, config.POLICY_RATES).dropna().sort_index(),
+        "r007_dr007": ml.spread_bp(r007, dr007), "bond_fut": bond, "us10y": y10,
+        "usd": fx["USDOLLAR"], "cnh": fx["USDCNH.FXCM"], "hy_oas": hy, "sofr_iorb": sofr_iorb,
+        "brent": fx["UKOIL"], "gold": gold, "sc_oil": oil,
+    }
+    breaks = {"dr001_spread": _policy_breaks(),
+              "bond_fut": _contract_breaks(c, "T.CFX", start),
+              "sc_oil": _contract_breaks(c, "SC.INE", start)}
+    frames = {}
+    for sp in specs:
+        x = series.get(sp["key"])
+        if x is None or len(x) == 0:
+            continue
+        try:
+            frames[sp["key"]] = mg.component_frame(x, sp, breaks.get(sp["key"], []), cfg)
+        except Exception as e:  # noqa: BLE001
+            log.warning("流动性指数项 %s 计算失败（%s: %s）", sp["name"], type(e).__name__, _short(e))
+
+    cal = [d for d in _cal_days(c) if d <= D]
+    if D not in cal:
+        cal.append(D)
+    cal = sorted(cal)
+    idx = mg.index_on(D, frames, specs, cfg)
+    hist = mg.index_history(cal, frames, specs, cfg)
+    ago = mg.ago(hist, D)
+    value = None if idx["value"] is None else int(round(idx["value"]))
+    zs = {k: it["z"] for k, it in idx["items"].items()}
+    combos_out = mg.combos(zs, config.GAUGE_COMBOS, cfg)
+    text, reason = mg.verdict(value, combos_out, idx["items"], specs, idx["missing"])
+
+    hist_from = _shift(D, -365)
+    history = [{"date": d, "value": int(round(v))} for d, v in hist.items() if d >= hist_from and pd.notna(v)]
+
+    comps = []
+    for sp in specs:
+        row_d, row = None, None
+        f = frames.get(sp["key"])
+        if f is not None:
+            sub = f[f.index <= D]
+            if len(sub) and (datetime.strptime(D, "%Y%m%d") - datetime.strptime(sub.index[-1], "%Y%m%d")).days \
+                    <= cfg["stale_days"]:
+                row_d, row = sub.index[-1], sub.iloc[-1]
+        price = sp["kind"] == "price"
+        chg = _num(row["chg"]) if row is not None else None
+        if chg is not None and price:
+            chg = (float(np.exp(chg)) - 1.0) * 100.0
+        sc = _num(row["score"]) if row is not None and sp["dir"] != 0 else None
+        comps.append({
+            "key": sp["key"], "group": sp["group"], "name": sp["name"], "hint": _gauge_hint(sp, D),
+            "value": _r(row["value"], 4) if row is not None else None, "unit": sp["unit"],
+            "chg5": _r(chg, 2), "chg5_unit": "%" if price else "bp",
+            "z": _r(row["z"], 2) if row is not None else None,
+            "score": None if sc is None else int(round(sc)), "zone": mg.zone(None if sc is None else round(sc)),
+            "date": row_d, "scored": sp["dir"] != 0,
+        })
+
+    empty = _empty_series()
+    gate = mg.gate(c.shared.get("m1", empty), c.shared.get("sf_yoy", empty), c.shared.get("fed", empty))
+    return {"date": D, "value": value, "zone": mg.zone(value), "domestic": _r(idx["domestic"], 1),
+            "external": _r(idx["external"], 1), "text": text, "reason": reason, "ago": ago,
+            "history": history, "components": comps, "combos": combos_out, "gate": gate}
+
+
+def _calendar(c: Ctx) -> dict:
+    D = c.D
+    y, m = int(D[:4]), int(D[4:6])
+    months = [(y, m), (y + 1, 1) if m == 12 else (y, m + 1)]
+    cal = _cal_days(c)
+    events = expiry.cn_events(months, cal) + expiry.us_events(months, set(expiry.US_HOLIDAYS))
+    return expiry.reminders(events, D, [d for d in cal if d > D][:5])
 
 
 def _empty_rank():
@@ -769,6 +933,8 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
     liquidity = _safe("流动性", lambda: _liquidity(c), lambda: {
         "domestic": [], "macro": [], "external": [],
         "vote": ml.liquidity_vote(None, None, None, None), "rate_expect": ml.rate_expectation(None, None)})
+    li = _safe("流动性指数", lambda: _liquidity_index(c), lambda: _empty_gauge(D))
+    calendar = _safe("到期日提醒", lambda: _calendar(c), lambda: {"today": [], "upcoming": []})
     sector = _safe("板块资金流向", lambda: _sector_flow(c),
                    lambda: {"date": None, "day": _empty_rank(), "d5": _empty_rank()})
     sent = _safe("散户情绪", lambda: _sentiment(c), _default_sentiment)
@@ -783,7 +949,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
         liquidity["vote"], liquidity["rate_expect"], fed_card, sector["day"], etf["team_last3"], etf["team_asof"],
         etf["round_total"], sent["kpis"], sent["market"], sent["market_yday"],
         trade_date=D, sector_date=sector.get("date"), conc_date=sent["concentration"].get("date"),
-        watch_spikes=etf["watch"]["spikes"]), list)
+        watch_spikes=etf["watch"]["spikes"], liquidity_index=li), list)
 
     return {
         "meta": {"trade_date": D, "generated_at": now.strftime("%Y-%m-%d %H:%M"), "demo": bool(demo),
@@ -793,6 +959,8 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
         "indices": indices,
         "assets": assets,
         "liquidity": liquidity,
+        "liquidity_index": li,
+        "calendar": calendar,
         "policy_ops": policy,
         "news": news,
         "sector_flow": sector,

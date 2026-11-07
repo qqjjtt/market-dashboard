@@ -570,3 +570,32 @@ def test_fx_without_tick_qty_keeps_all_rows():
     df = _fx_frame([1, 1, 1]).drop(columns="tick_qty")
     src, _ = make(FakePro(fx_daily=df))
     assert len(src.fx("UKOIL", "20261101", "20261105")) == 3
+
+
+def test_fut_mapping_columns_and_sort():
+    fm = pd.DataFrame({"ts_code": ["T.CFX"] * 3, "trade_date": ["20261106", "20261104", "20261105"],
+                       "mapping_ts_code": ["T2612.CFX", "T2612.CFX", "T2612.CFX"]})
+    pro = FakePro(fut_mapping=fm)
+    src, _ = make(pro)
+    df = src.fut_mapping("T.CFX", "20261101", "20261106")
+    assert list(df.columns) == ["trade_date", "mapping_ts_code"]
+    assert list(df.trade_date) == ["20261104", "20261105", "20261106"]
+    kw = pro.calls[0][1]
+    assert kw["ts_code"] == "T.CFX" and kw["start_date"] == "20261101" and kw["end_date"] == "20261106"
+
+
+def test_fut_mapping_empty_keeps_columns():
+    src, _ = make(FakePro(fut_mapping=pd.DataFrame()))
+    df = src.fut_mapping("SC.INE", "20261101", "20261106")
+    assert df.empty and list(df.columns) == ["trade_date", "mapping_ts_code"]
+
+
+def test_trade_days_between_sorted_with_future():
+    cal = pd.DataFrame({"cal_date": ["20261125", "20261120", "20261123"], "is_open": [1, 1, 1]})
+    pro = FakePro(trade_cal=cal)
+    src, _ = make(pro)
+    assert src.trade_days_between("20261120", "20261130") == ["20261120", "20261123", "20261125"]
+    kw = pro.calls[0][1]
+    assert kw["exchange"] == "SSE" and kw["is_open"] == 1 and kw["end_date"] == "20261130"
+    src2, _ = make(FakePro(trade_cal=pd.DataFrame()))
+    assert src2.trade_days_between("20261120", "20261130") == []

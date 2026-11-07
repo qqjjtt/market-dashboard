@@ -105,3 +105,28 @@ def test_team_card_watch_spikes():
     assert "观察池" not in c["sub"]
     c = by_key(conclusions(team_last3=[], watch_spikes=spikes[:1]))["team"]
     assert c["tone"] == "gray" and "观察池天量：科创50ETF" in c["sub"]
+
+
+def _li(value, zone, reason="外部在收紧：美元走强"):
+    return {"value": value, "zone": zone, "reason": reason}
+
+
+def test_liquidity_card_from_index_tight_is_green():
+    c = by_key(conclusions(liquidity_index=_li(37, "偏紧")))["liquidity"]
+    assert c["text"] == "流动性偏紧（37）" and c["sub"] == "外部在收紧：美元走强" and c["tone"] == "green"
+
+
+def test_liquidity_card_from_index_tones():
+    tones = {z: by_key(conclusions(liquidity_index=_li(v, z)))["liquidity"]["tone"]
+             for v, z in ((10, "极度紧张"), (50, "中性"), (60, "偏松"), (90, "极度宽松"))}
+    assert tones == {"极度紧张": "green", "中性": "blue", "偏松": "red", "极度宽松": "red"}
+
+
+def test_liquidity_card_index_empty_is_gray():
+    c = by_key(conclusions(liquidity_index=_li(None, None, "数据不足")))["liquidity"]
+    assert c["text"] == "流动性数据不足" and c["tone"] == "gray"
+
+
+def test_liquidity_card_without_index_keeps_vote():
+    c = by_key(conclusions())["liquidity"]
+    assert "偏松" in c["text"] and "合计" in c["text"] and c["tone"] == "red"

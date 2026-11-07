@@ -605,3 +605,78 @@ def test_watch_spike_reaches_page_and_team_card(tmp_path, monkeypatch):
     team = next(c for c in data["conclusions"] if c["key"] == "team")
     assert "观察池天量" in team["sub"]
     assert team["text"].startswith(("仍在", "放缓", "疑似撤出"))  # 判断不受观察池影响
+
+
+ZONES = {z[2] for z in config.GAUGE_ZONES}
+
+
+def test_liquidity_index_payload(tmp_path):
+    _, data = run(tmp_path)
+    li = data["liquidity_index"]
+    assert isinstance(li["value"], int) and 0 <= li["value"] <= 100 and li["zone"] in ZONES
+    assert len(li["components"]) == 11
+    comp = {c["key"]: c for c in li["components"]}
+    for k in ("gold", "sc_oil"):
+        assert comp[k]["scored"] is False and comp[k]["score"] is None
+    assert comp["us10y"]["scored"] is True and isinstance(comp["us10y"]["score"], int)
+    assert comp["us10y"]["chg5_unit"] == "bp" and comp["usd"]["chg5_unit"] == "%"
+    assert "隔夜逆回购 1.25%" in comp["dr001_spread"]["hint"]
+    assert len(li["combos"]) == 3 and all(c["of"] == 3 for c in li["combos"])
+    assert set(li["ago"]) == {"prev", "w1", "m1", "y1"} and all(v is not None for v in li["ago"].values())
+    assert len(li["history"]) >= 240 and li["history"][-1]["date"] == DATE
+    assert li["gate"]["ok"] in (True, False) and isinstance(li["gate"]["notes"], list)
+    assert li["text"].startswith(li["zone"]) and li["reason"] in li["text"]
+    assert data["meta"]["warnings"] == []
+
+
+def test_gauge_fred_down(tmp_path, monkeypatch):
+    _, data = run(tmp_path, fred=DownFred(), monkeypatch=monkeypatch)
+    li = data["liquidity_index"]
+    assert li["value"] is not None and li["reason"].endswith("（外部缺 2 项）")
+    assert li["gate"]["ok"] is True or li["gate"]["notes"]
+
+
+def test_calendar_payload(tmp_path):
+    _, data = run(tmp_path, extra=())
+    assert set(data["calendar"]) == {"today", "upcoming"}
+
+
+def _cal(tmp_path, monkeypatch, date):
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (DemoSource(), DemoFred()))
+    out = tmp_path / "c.html"
+    assert main(["--demo", "--out", str(out), "--date", date]) == 0
+    return json.loads(extract_data_json(out.read_text(encoding="utf-8")))["calendar"]
+
+
+def test_calendar_upcoming_and_today(tmp_path, monkeypatch):
+    cal = _cal(tmp_path, monkeypatch, "20261117")
+    on_20 = [e for e in cal["upcoming"] if e["date"] == "20261120"]
+    assert {e["market"] for e in on_20} == {"A股", "美股"} and cal["today"] == []
+    assert not any(e["date"] == "20261125" for e in cal["upcoming"])
+    cal = _cal(tmp_path, monkeypatch, "20261120")
+    assert len(cal["today"]) == 2
+
+
+def test_liquidity_conclusion_from_index(tmp_path):
+    _, data = run(tmp_path)
+    li = data["liquidity_index"]
+    card = next(c for c in data["conclusions"] if c["key"] == "liquidity")
+    assert card["text"].startswith("流动性") and f"（{li['value']}）" in card["text"]
+    assert card["sub"] == li["reason"]
+
+
+def test_gauge_no_duplicate_fetches(tmp_path, monkeypatch):
+    calls = []
+
+    class Spy(DemoSource):
+        def repo(self, code, start, end):
+            calls.append(("repo", code, start))
+            return super().repo(code, start, end)
+
+        def fut_mapping(self, code, start, end):
+            calls.append(("fut_mapping", code, start))
+            return super().fut_mapping(code, start, end)
+
+    run(tmp_path, src=Spy(), monkeypatch=monkeypatch)
+    assert len(calls) == len(set(calls))
+    assert {c[:2] for c in calls if c[0] == "fut_mapping"} == {("fut_mapping", "T.CFX"), ("fut_mapping", "SC.INE")}

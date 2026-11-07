@@ -176,3 +176,21 @@ def test_demo_fred():
     w = f.series("WALCL", "2026-09-01")
     assert all(ts.weekday() == 2 for ts in w.index)  # 周三
     assert f.series("NOPE", "2026-09-01") is None
+
+
+def test_demo_fut_mapping_changes_quarterly():
+    d = DemoSource()
+    fm = d.fut_mapping("T.CFX", "20240101", "20261106")
+    assert list(fm.columns) == ["trade_date", "mapping_ts_code"] and fm["trade_date"].is_monotonic_increasing
+    codes = list(fm["mapping_ts_code"])
+    changes = [i for i in range(1, len(codes)) if codes[i] != codes[i - 1]]
+    assert len(changes) >= 8 and all(c.startswith("T") and c.endswith(".CFX") for c in codes)
+    assert fm["trade_date"].iloc[changes[0]][4:6] in ("03", "06", "09", "12")
+    sc = d.fut_mapping("SC.INE", "20260101", "20261106")
+    assert sc["mapping_ts_code"].iloc[0].startswith("SC") and sc["mapping_ts_code"].iloc[0].endswith(".INE")
+
+
+def test_demo_trade_days_between():
+    d = DemoSource()
+    days = d.trade_days_between("20261116", "20261127")
+    assert days[0] == "20261116" and days[-1] == "20261127" and len(days) == 10

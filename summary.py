@@ -73,6 +73,18 @@ def _liquidity_card(vote: dict, rate_expect: dict, fed_card: dict) -> dict:
     return _card("liquidity", "流动性", text, f"{line1}\n{line2}", tone)
 
 
+_ZONE_TONE = {"极度紧张": "green", "偏紧": "green", "中性": "blue", "偏松": "red", "极度宽松": "red"}
+
+
+def _liquidity_card_from_index(li: dict) -> dict:
+    """流动性指数驱动的结论卡（设计 §5.3）：紧 → green、松 → red（A 股红涨绿跌约定），空 → gray。"""
+    if not _ok(li.get("value")):
+        return _card("liquidity", "流动性", "流动性数据不足", li.get("reason") or "数据不足", "gray")
+    zone = li.get("zone") or ""
+    return _card("liquidity", "流动性", f"流动性{zone}（{li['value']}）", li.get("reason") or "",
+                 _ZONE_TONE.get(zone, "blue"))
+
+
 def _stale(date: str | None, trade_date: str | None) -> str | None:
     """面板日期与交易日 D 不同 → 返回「M/D」；同日或任一缺失 → None。"""
     return _md(date) if date and trade_date and date != trade_date else None
@@ -158,16 +170,19 @@ def build_conclusions(vote: dict, rate_expect: dict, fed_card: dict, sector_day:
                       team_last3: list[float], team_asof: str | None, round_total: float | None,
                       temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None,
                       trade_date: str | None = None, sector_date: str | None = None,
-                      conc_date: str | None = None, watch_spikes: list[dict] | None = None) -> list[dict]:
+                      conc_date: str | None = None, watch_spikes: list[dict] | None = None,
+                      liquidity_index: dict | None = None) -> list[dict]:
     """四张结论卡（流动性 / 板块流向 / 国家队 / 散户情绪）。
 
     trade_date = 交易日 D；sector_date / conc_date 为板块流向 / 韭菜浓度各自的数据日期，
     与 D 不同时在对应卡片上注明「（截至 M/D）」，避免把旧数据当成当天的。
 
-    流动性卡的 sub 含两行（\\n 分隔）：信号方向行 + 外围一句。
+    liquidity_index 不为 None 时流动性卡由指数驱动（text/sub/tone 见 _liquidity_card_from_index），
+    否则沿用原投票逻辑。投票逻辑下流动性卡的 sub 含两行（\\n 分隔）：信号方向行 + 外围一句。
     """
     return [
-        _liquidity_card(vote, rate_expect, fed_card),
+        _liquidity_card_from_index(liquidity_index) if liquidity_index is not None
+        else _liquidity_card(vote, rate_expect, fed_card),
         _sector_card(sector_day, sector_date, trade_date),
         _team_card(team_last3, team_asof, round_total, watch_spikes),
         _retail_card(temp_kpis, market_conc, market_conc_yday, conc_date, trade_date),
