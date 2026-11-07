@@ -76,7 +76,7 @@ def test_build_demo_end_to_end(tmp_path):
     assert "FXCM" in usd["note"] and "DXY" in usd["note"]  # 12759 这类点位不是 DXY，须在卡片上写明
     assert len(data["fingerprint"]["groups"]) == 4
     assert data["temperature"]["series"] and data["temperature"]["kpis"]["today"] is not None
-    assert data["concentration"]["date"] == DATE and len(data["concentration"]["rows"]) == 14
+    assert data["concentration"]["date"] == DATE and len(data["concentration"]["rows"]) == 15
     assert data["news"] == {"domestic": [], "external": [], "status": "disabled", "since": None}
     assert isinstance(data["meta"]["warnings"], list)
     assert "TUSHARE_TOKEN" not in html

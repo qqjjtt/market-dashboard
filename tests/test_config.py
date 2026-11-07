@@ -4,6 +4,7 @@ def test_lists():
     assert config.HUIJIN6 == ["510300.SH", "510310.SH", "510330.SH", "159919.SZ", "510050.SH", "510500.SH"]
     assert config.TEAM_NAME == "汇金重仓 6 只"
 def test_sectors():
-    assert len(config.SECTORS) == 14
+    assert len(config.SECTORS) == 15
+    assert "农业·种业" in [s["name"] for s in config.SECTORS]
     assert [s["name"] for s in config.SECTORS if s["dynamic"]] == ["高位连板·情绪核心"]
     assert not any("恒生" in s["name"] for s in config.SECTORS)
