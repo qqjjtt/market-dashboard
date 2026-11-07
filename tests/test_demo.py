@@ -194,3 +194,22 @@ def test_demo_trade_days_between():
     d = DemoSource()
     days = d.trade_days_between("20261116", "20261127")
     assert days[0] == "20261116" and days[-1] == "20261127" and len(days) == 10
+
+
+def test_demo_hot_sources():
+    d = DemoSource()
+    cl = d.sw_classify()
+    assert list(cl.columns) == ["index_code", "industry_name", "level", "parent_code"]
+    fixed = {n for s in config.SECTORS if not s["dynamic"] for n in s["sw"]}
+    names = cl["industry_name"].str.replace("[ⅡⅢ]", "", regex=True)
+    extra = cl[cl["level"].isin(["L2", "L3"]) & ~names.isin(fixed)]
+    assert len(extra) >= 6
+    sw = d.sw_members()
+    mem = set(sw["l2_name"].str.replace("Ⅱ", "")) | set(sw["l3_name"].str.replace("Ⅲ", ""))
+    assert sum(n in mem for n in names[extra.index]) >= 6  # 额外行业有成分股
+    r = d.sw_daily_range("20261001", "20261106")
+    assert list(r.columns) == ["ts_code", "trade_date", "name", "pct_change", "amount", "float_mv"]
+    assert set(cl["index_code"]) == set(r["ts_code"])
+    w, m = d.winner_rate("20261106"), d.circ_mv("20261106")
+    assert w["winner_rate"].between(20, 90).all() and (m["circ_mv"] > 0).all() and len(w) == len(m)
+    assert d.winner_rate("20261107").empty and d.circ_mv("20261107").empty  # 周六

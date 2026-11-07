@@ -625,10 +625,15 @@ def _recent_limit_codes(flags: dict, day: str) -> set:
     return out
 
 
+def _default_concentration():
+    return {"date": None, "market": None, "market_yday": None, "mode": None, "rows": [], "hot": [],
+            "profit_date": None, "market_profit": None, "market_trapped": None}
+
+
 def _default_sentiment():
     return {"temperature": {"series": [], "kpis": {}, "dims": {}, "limit_up": None, "limit_down": None,
                             "range": None, "six_dim": None},
-            "concentration": {"date": None, "market": None, "market_yday": None, "mode": None, "rows": []},
+            "concentration": _default_concentration(),
             "kpis": {}, "market": None, "market_yday": None, "mode": None}
 
 
@@ -692,7 +697,7 @@ def _concentration(c: Ctx) -> dict:
             break
     if Dc is None:
         log.warning("个股资金流向 最近 3 个开市日均无数据，韭菜浓度面板留空")
-        return {"date": None, "market": None, "market_yday": None, "mode": None, "rows": [], "_mode": None}
+        return dict(_default_concentration(), _mode=None)
     if Dc != D:
         log.warning("个股资金流向 数据截至 %s", _md(Dc))
 
@@ -703,14 +708,57 @@ def _concentration(c: Ctx) -> dict:
         df = _fetch(f"个股资金流向 {_md(Dy)}", src.moneyflow, Dy)
         mf_y = df if isinstance(df, pd.DataFrame) and not df.empty else None
 
-    sectors, mode = ms.match_sectors(basic, sw, _recent_limit_codes(c.flags, Dc))
+    # --- 热门板块：全市场申万 L2/L3 按热度排名；前 n 个未覆盖且无父子关系的作为动态行，固定板块进前 top_k 标热
+    hc = config.HOT_SECTORS
+    covered = {n for s in config.SECTORS if not s.get("dynamic") for n in s["sw"]}
+
+    def hot_rank():
+        classify = _fetch("申万行业分类", src.sw_classify, note="，热门板块留空")
+        swd = _fetch("申万行业日线", src.sw_daily_range, _shift(Dc, -45), Dc, note="，热门板块留空")
+        if not isinstance(classify, pd.DataFrame) or not isinstance(swd, pd.DataFrame) or classify.empty or swd.empty:
+            return []
+        return ms.hot_industries(swd, classify, covered, Dc, hc)
+
+    ranked = _safe("热门板块", hot_rank, list)
+    extra = [{"name": r["name"], "icon": hc["icon"], "sw": [r["name"]], "hot": True}
+             for r in ms.pick_dynamic(ranked, hc["n"])]
+    hot_fixed = ms.hot_fixed_names(ranked, hc["top_k"])
+
+    sectors, mode = ms.match_sectors(basic, sw, _recent_limit_codes(c.flags, Dc), extra=extra)
     sectors_y = None
     if mf_y is not None:
-        sectors_y, _ = ms.match_sectors(basic, sw, _recent_limit_codes(c.flags, Dy))
-    rows = ms.concentration_wall(mf, mf_y, sectors, sectors_y)
+        sectors_y, _ = ms.match_sectors(basic, sw, _recent_limit_codes(c.flags, Dy), extra=extra)
+    rows = ms.concentration_wall(mf, mf_y, sectors, sectors_y, extra=extra if mode == "申万行业" else None,
+                                 hot_fixed=hot_fixed)
     market = ms.concentration(mf)
     market_y = ms.concentration(mf_y) if mf_y is not None else None
-    return {"date": Dc, "market": market, "market_yday": market_y, "mode": mode, "rows": rows, "_mode": mode}
+
+    # --- 获利盘：cyq_perf 每天 20-21 点才出，从 Dc 起最多往前 3 个开市日找第一个有数据的日子
+    Dp, win, mv = None, None, None
+    cand = [d for d in c.days if d <= Dc][-3:][::-1] or [Dc]
+    for d in cand:
+        df = _fetch(f"获利盘 {_md(d)}", src.winner_rate, d)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            Dp, win = d, df
+            break
+    if Dp is not None:
+        if Dp != Dc:
+            log.warning("获利盘数据截至 %s", _md(Dp))
+        mv = _fetch(f"流通市值 {_md(Dp)}", src.circ_mv, Dp, note="，获利盘留空")
+
+    def prof(codes):
+        v = _safe("获利盘", lambda: ms.profit_ratio(win, mv, codes), None)
+        return (round(v, 1), round(100 - round(v, 1), 1)) if v is not None else (None, None)
+
+    for r in rows:
+        r["profit"], r["trapped"] = prof(sectors.get(r["name"], set()))
+    mp, mt = prof(None)
+    hot_out = [{"code": r["code"], "name": r["name"], "level": r["level"], "parent": r.get("parent") or "",
+                "amount_ratio": round(r["amount_ratio"], 2), "pct_n": round(r["pct_n"], 2),
+                "score": round(r["score"], 2), "rank": r["rank"], "covered": r["covered"]}
+               for r in ranked[:hc["top_k"]]]
+    return {"date": Dc, "market": market, "market_yday": market_y, "mode": mode, "rows": rows, "_mode": mode,
+            "hot": hot_out, "profit_date": Dp if mp is not None else None, "market_profit": mp, "market_trapped": mt}
 
 
 # ------------------------------------------------------------------ ETF / 国家队

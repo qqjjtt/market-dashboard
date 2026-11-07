@@ -145,6 +145,11 @@ US_INDICES = [("SPX", "标普500"), ("IXIC", "纳指"), ("DJI", "道指")]
 VOTE = dict(turnover_hi=1.10, turnover_lo=0.90, margin_pct=0.5, shibor_bp=5, loose=2, tight=-2)
 RATE_BAND_BP = 10
 
+# 浓度墙热门板块（申万 L2/L3，热度在全市场排）：成交放大为主、涨幅为辅；n = 动态行数；top_k = 进前几名即标「热」
+# min_float_mv 单位万元（= 300 亿），过滤太小的行业
+HOT_SECTORS = dict(n=5, top_k=10, recent_days=5, base_days=20, min_float_mv=3_000_000, w_amount=0.7, w_pct=0.3,
+                   icon="🔥")
+
 NEWS_ENABLED = False  # 新闻时间线暂时下线（2026-11-07）：不调用 major_news、页面不显示；改回 True 即恢复
 NEWS_DAYS = 7
 NEWS_MAX_CALLS = 8  # 单次构建最多调用 major_news 次数；账号限额 40 次/天、30 次/小时，每天 3 次构建需留余量

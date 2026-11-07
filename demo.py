@@ -33,6 +33,9 @@ _NEWS_HITS = [  # (距 end_dt 的小时数, 来源, 标题)：命中 NEWS_KW_*
 _NEWS_FILLER = ["两市成交额小幅回升", "多家上市公司披露三季报", "新能源车10月销量数据公布",
                 "多地发布文旅促销政策", "科创板新股申购开启", "机构调研热度上升"]
 _FMT = "%Y-%m-%d %H:%M:%S"
+# 不在固定板块里的申万行业（热门动态行的候选）：(名称, 级别, 父级名称)
+_EXTRA_SW = [("工程机械", "L2", ""), ("医疗器械", "L2", ""), ("玻璃玻纤", "L2", ""), ("物流", "L2", ""),
+             ("造纸", "L2", ""), ("白色家电", "L2", ""), ("医疗设备", "L3", "医疗器械"), ("快递", "L3", "物流")]
 
 
 def _empty(cols):
@@ -88,6 +91,17 @@ class DemoSource:
                 if rng.random() > 0.05:  # 少数股票没有申万成分记录
                     members.append((code, str(rng.choice(sec["sw"])),
                                     str(rng.choice(sec["sw"])) + "Ⅱ", str(rng.choice(sec["sw"])) + "Ⅲ"))
+        # 一部分股票改属不在固定板块里的行业，保证热门行算得出浓度与获利盘
+        extra_l2 = [n for n, lv, _ in _EXTRA_SW if lv == "L2"]
+        l3_of = {p: n for n, lv, p in _EXTRA_SW if lv == "L3"}
+        by_code = {m[0]: m for m in members}
+        for k, (code, *_rest) in enumerate(rows):
+            if k % 5 != 3:
+                continue
+            l2 = extra_l2[(k // 5) % len(extra_l2)]
+            l3 = l3_of.get(l2) if (k // 5) % 2 == 0 and l2 in l3_of else l2
+            by_code[code] = (code, "演示一级", l2 + "Ⅱ", l3 + "Ⅲ")
+        members = [by_code[r[0]] for r in rows if r[0] in by_code]
         self._stocks = pd.DataFrame(rows, columns=["ts_code", "name", "industry"])
         self._members = pd.DataFrame(members, columns=["ts_code", "l1_name", "l2_name", "l3_name"])
         names = dict(zip(self._stocks["ts_code"], self._stocks["name"]))
@@ -151,6 +165,56 @@ class DemoSource:
 
     def sw_members(self):
         return self._members.copy()
+
+    def _sw_codes(self):
+        """(code, 名称, 级别, 父级代码)：固定板块用到的申万名称按 L2、_EXTRA_SW 按其级别。"""
+        fixed = list(dict.fromkeys(n for s in config.SECTORS if not s["dynamic"] for n in s["sw"]))
+        out = [("801000.SI", "演示一级", "L1", "")]
+        out += [(f"8010{i:02d}.SI", n + "Ⅱ", "L2", "801000.SI") for i, n in enumerate(fixed)]
+        l2code = {}
+        for i, (n, lv, parent) in enumerate(_EXTRA_SW):
+            code = f"8020{i:02d}.SI"
+            if lv == "L2":
+                l2code[n] = code
+        for i, (n, lv, parent) in enumerate(_EXTRA_SW):
+            code = f"8020{i:02d}.SI"
+            out.append((code, n + ("Ⅱ" if lv == "L2" else "Ⅲ"), lv, l2code[parent] if lv == "L3" else "801000.SI"))
+        return out
+
+    def sw_classify(self):
+        return pd.DataFrame(self._sw_codes(), columns=["index_code", "industry_name", "level", "parent_code"])
+
+    def sw_daily_range(self, start, end):
+        cols = ["ts_code", "trade_date", "name", "pct_change", "amount", "float_mv"]
+        days = _days_between(start, end)
+        if not days:
+            return _empty(cols)
+        frames = []
+        for code, name, _lv, _p in self._sw_codes():
+            h = _hash("swbase", code)
+            amt = self._slice(self._walk(("swamt", code), 1e5 * (1 + h % 40), 0.12), start, end)
+            rng = self._rng("swpct", code)
+            pct_all = pd.Series(rng.normal(0, 1.2, len(_BDAYS)), index=_BDAYS)
+            frames.append(pd.DataFrame({
+                "ts_code": code, "trade_date": list(amt.index), "name": name,
+                "pct_change": pct_all.reindex(amt.index).to_numpy().round(4),
+                "amount": amt.to_numpy().round(2),
+                "float_mv": round(4e5 + (h % 50) * 4e5 + 1e5 * (h % 7), 2)}))
+        return pd.concat(frames, ignore_index=True)[cols]
+
+    def winner_rate(self, trade_date):
+        if trade_date not in _BDAY_SET:
+            return _empty(["ts_code", "winner_rate"])
+        rng = self._rng("winner", trade_date)
+        return pd.DataFrame({"ts_code": self._stocks["ts_code"].to_numpy(),
+                             "winner_rate": rng.uniform(20, 90, len(self._stocks)).round(2)})
+
+    def circ_mv(self, trade_date):
+        if trade_date not in _BDAY_SET:
+            return _empty(["ts_code", "circ_mv"])
+        rng = self._rng("circmv", trade_date)
+        return pd.DataFrame({"ts_code": self._stocks["ts_code"].to_numpy(),
+                             "circ_mv": np.exp(rng.normal(np.log(3e5), 1.0, len(self._stocks))).round(2)})
 
     # ------------------------------------------------------------ ETF / 指数
 

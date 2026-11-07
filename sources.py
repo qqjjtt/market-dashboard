@@ -197,6 +197,48 @@ class TushareSource:
             return _empty(cols)
         return out[cols].reset_index(drop=True)
 
+    def _paged(self, api, cols, limit, **kw):
+        """limit/offset 翻页取全，选列；返回缺列 / 空表 → 带列的空 DataFrame。"""
+        frames, offset = [], 0
+        while True:
+            df = self.call(api, limit=limit, offset=offset, **kw)
+            if df.empty:
+                break
+            frames.append(df)
+            if len(df) < limit:
+                break
+            offset += limit
+        if not frames:
+            return _empty(cols)
+        out = pd.concat(frames, ignore_index=True)
+        if not all(c in out.columns for c in cols):
+            log.warning("%s 返回缺少预期列 %s，按空数据处理", api, [c for c in cols if c not in out.columns])
+            return _empty(cols)
+        out = out[cols].copy()
+        if "trade_date" in out.columns:
+            out["trade_date"] = out["trade_date"].astype(str)
+            out = out.sort_values("trade_date", kind="stable")
+        return out.reset_index(drop=True)
+
+    def sw_classify(self):
+        """申万行业分类（SW2021）：L1/L2/L3 及父级代码。"""
+        cols = ["index_code", "industry_name", "level", "parent_code"]
+        return self._fetch("index_classify", cols, src="SW2021")
+
+    def sw_daily_range(self, start, end):
+        """申万指数日行情（含 L1/L2/L3 及非行业指数，用 sw_classify 过滤）。amount、float_mv 保持 tushare 原值（万元）。"""
+        cols = ["ts_code", "trade_date", "name", "pct_change", "amount", "float_mv"]
+        return self._paged("sw_daily", cols, 4000, start_date=start, end_date=end)
+
+    def winner_rate(self, trade_date):
+        """筹码胜率（获利盘比例，%），每天 20–21 点才有当天数据。"""
+        return self._paged("cyq_perf", ["ts_code", "winner_rate"], 6000, trade_date=trade_date)
+
+    def circ_mv(self, trade_date):
+        """流通市值（万元），用于加权。"""
+        return self._paged("daily_basic", ["ts_code", "circ_mv"], 6000, trade_date=trade_date,
+                           fields="ts_code,circ_mv")
+
     # ------------------------------------------------------------ ETF / 指数
 
     def etf_share(self, code, start, end):

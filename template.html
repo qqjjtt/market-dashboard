@@ -275,7 +275,14 @@
   table.wall tr.first td:last-child { border-radius: 0 6px 6px 0; }
   table.wall .nm { font-weight: 600; }
   table.wall .nm small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; white-space: nowrap; }
-  table.wall td.bar { width: 40%; }
+  table.wall td.bar { width: 34%; }
+  .hot-tag { display: inline-block; margin-left: 6px; padding: 0 5px; font-size: 11px; font-weight: 600; line-height: 1.5;
+    color: var(--up); background: var(--bg); border: 1px solid var(--up); border-radius: 3px; vertical-align: 1px; }
+  table.wall td.pf { white-space: nowrap; font-size: 13px; font-weight: 600; min-width: 92px; }
+  table.wall td.pf .lbl { font-weight: 400; color: var(--muted); }
+  table.wall td.pf .sp { color: var(--muted); font-weight: 400; margin: 0 3px; }
+  .pbar { display: flex; height: 4px; margin-top: 4px; border-radius: 2px; overflow: hidden; background: var(--surface); }
+  .pbar i { display: block; height: 100%; }
   .wbar { position: relative; height: 10px; background: var(--surface); border-radius: 5px; }
   .wbar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; }
   .wbar u { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); text-decoration: none; }
@@ -324,6 +331,8 @@
     table.wall th.bar, table.wall td.bar { display: none; }
     table.wall td { padding: 10px 6px; }
     table.wall td.pv { font-size: 16px; }
+    table.wall td.pf { min-width: 0; font-size: 12px; }
+    table.wall td.pf .lbl, .pbar { display: none; }
     .band span { font-size: 11px; padding: 4px 0; }
   }
 </style>
@@ -1543,16 +1552,21 @@ function renderWall(body) {
   var mk = el("p", "wall-intro");
   add(mk, document.createTextNode("全市场韭菜浓度 "), el("b", null, isNum(Cn.market) ? fmtNum(Cn.market, 2) + "%" : DASH),
     document.createTextNode("（昨 " + (isNum(Cn.market_yday) ? fmtNum(Cn.market_yday, 2) + "%" : DASH) + "）"));
+  if (isNum(Cn.market_profit)) {
+    add(mk, document.createTextNode(" · 获利盘 "), el("b", "up", fmtNum(Cn.market_profit, 1) + "%"),
+      document.createTextNode(" · 被套 "), el("b", "down", isNum(Cn.market_trapped) ? fmtNum(Cn.market_trapped, 1) + "%" : DASH));
+  }
   card.appendChild(mk);
   if (!rows.length) { card.appendChild(el("div", "empty-note", "无数据")); body.appendChild(card); return; }
   var t = el("table", "wall"), thead = el("thead"), hr = el("tr");
-  [["板块", ""], ["浓度（黑刻度 = 昨日）", "bar"], ["今日", "r"], ["环比（pp）", "r"]].forEach(function (c) { hr.appendChild(el("th", c[1], c[0])); });
+  [["板块", ""], ["浓度（黑刻度 = 昨日）", "bar"], ["今日", "r"], ["环比（pp）", "r"], ["获利 / 被套", ""]].forEach(function (c) { hr.appendChild(el("th", c[1], c[0])); });
   thead.appendChild(hr); t.appendChild(thead);
   var tb = el("tbody");
   rows.forEach(function (r, i) {
     var col = TONE_COLOR[r.color] || C.muted;
     var tr = el("tr", i === 0 ? "first" : "");
     var nm = el("td", "nm", (r.icon ? r.icon + " " : "") + (r.name || DASH));
+    if (r.hot) nm.appendChild(el("span", "hot-tag", "热"));
     nm.appendChild(el("small", null, "n=" + (isNum(r.n) ? r.n : DASH)));
     var bar = el("td", "bar"), wb = el("div", "wbar");
     if (isNum(r.today)) { var fill = el("i"); fill.style.width = Math.max(0, Math.min(100, r.today)) + "%"; fill.style.background = col; wb.appendChild(fill); }
@@ -1566,9 +1580,22 @@ function renderWall(body) {
     var pv = el("td", "r pv", isNum(r.today) ? fmtNum(r.today, 2) + "%" : DASH);
     pv.style.color = col;
     var cv = el("td", "r cv " + (isNum(r.chg) ? dirClass(r.chg) : "flat"), isNum(r.chg) ? fmtSigned(r.chg, 2) : "新增");
-    add(tr, nm, bar, pv, cv); tb.appendChild(tr);
+    var pf = el("td", "pf");
+    if (isNum(r.profit)) {
+      var pw = el("span", "up"), tw = el("span", "down");
+      add(pw, el("span", "lbl", "获利 "), document.createTextNode(fmtNum(r.profit, 0) + "%"));
+      add(tw, el("span", "lbl", "被套 "), document.createTextNode(isNum(r.trapped) ? fmtNum(r.trapped, 0) + "%" : DASH));
+      add(pf, pw, el("span", "sp", "/"), tw);
+      var pb = el("div", "pbar"), a = el("i"), b = el("i");
+      a.style.width = Math.max(0, Math.min(100, r.profit)) + "%"; a.style.background = "var(--up)";
+      b.style.width = Math.max(0, Math.min(100, 100 - r.profit)) + "%"; b.style.background = "var(--down)";
+      add(pb, a, b); pf.appendChild(pb);
+    } else { pf.textContent = DASH; pf.className = "pf muted"; }
+    add(tr, nm, bar, pv, cv, pf); tb.appendChild(tr);
   });
-  t.appendChild(tb); card.appendChild(t); body.appendChild(card);
+  t.appendChild(tb); card.appendChild(t);
+  if (Cn.profit_date && Cn.profit_date !== Cn.date) card.appendChild(el("p", "wall-intro", "获利盘截至 " + fmtDay(Cn.profit_date)));
+  body.appendChild(card);
 }
 function renderRetail(p) {
   guard(p, function () { heroBand(p, "retail"); });

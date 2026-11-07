@@ -2,9 +2,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import config
+
 from metrics_sentiment import (
     concentration,
     concentration_wall,
+    hot_fixed_names,
+    hot_industries,
+    pick_dynamic,
+    profit_ratio,
+    strip_roman,
     limit_flags,
     limit_threshold,
     match_sectors,
@@ -259,3 +266,123 @@ def test_config_sw_keywords_all_exist_as_real_l2_l3_names():
     kws = {k for s in config.SECTORS if not s["dynamic"] for k in s["sw"]}
     assert "电信服务" not in kws and "银行" not in kws
     assert {"电信运营商", "国有大型银行", "股份制银行", "城商行", "农商行"} <= kws
+
+
+# ---------------------------------------------------------------- 热门行业 / 获利盘
+
+HOT_CFG = dict(n=2, top_k=3, recent_days=2, base_days=3, min_float_mv=100, w_amount=0.7, w_pct=0.3, icon="🔥")
+DAYS = [f"2026110{i}" for i in range(1, 6)]  # 5 天 = recent 2 + base 3
+
+
+def _classify(rows):
+    """rows: [(code, name, level, parent_code)]"""
+    return pd.DataFrame(rows, columns=["index_code", "industry_name", "level", "parent_code"])
+
+
+def _swd(spec, mv=1000):
+    """spec: {code: (amounts[5], pcts[5])}；name 取 code 对应占位。"""
+    out = []
+    for code, (amts, pcts) in spec.items():
+        for d, a, p in zip(DAYS, amts, pcts):
+            out.append((code, d, code, p, a, mv[code] if isinstance(mv, dict) else mv))
+    return pd.DataFrame(out, columns=["ts_code", "trade_date", "name", "pct_change", "amount", "float_mv"])
+
+
+FLAT = [0, 0, 0, 0, 0]
+
+
+def test_strip_roman():
+    assert strip_roman("白酒Ⅱ") == "白酒" and strip_roman("数字芯片设计Ⅲ") == "数字芯片设计"
+    assert strip_roman(None) == ""
+
+
+def test_hot_industries_ranks_by_amount_then_pct():
+    cl = _classify([("A", "甲Ⅱ", "L2", "P"), ("B", "乙Ⅱ", "L2", "P"), ("C", "丙Ⅱ", "L2", "P")])
+    sw = _swd({"A": ([10, 10, 10, 30, 30], FLAT),            # 放量 3 倍
+               "B": ([10, 10, 10, 20, 20], [0, 0, 0, 1, 1]),  # 放量 2 倍
+               "C": ([10, 10, 10, 20, 20], [0, 0, 0, 5, 5])})  # 放量 2 倍、涨幅更大
+    r = hot_industries(sw, cl, set(), DAYS[-1], HOT_CFG)
+    assert [x["name"] for x in r] == ["甲", "丙", "乙"]
+    assert [x["rank"] for x in r] == [1, 2, 3]
+    assert r[0]["amount_ratio"] == pytest.approx(3.0) and r[1]["pct_n"] == pytest.approx((1.05 ** 2 - 1) * 100)
+    assert r[0]["level"] == "L2" and r[0]["code"] == "A" and set(r[0]) >= {"score", "covered", "rank"}
+
+
+def test_hot_industries_covered_still_ranked_but_flagged_and_not_picked():
+    cl = _classify([("S", "半导体Ⅱ", "L2", "T"), ("S1", "数字芯片设计Ⅲ", "L3", "S"),
+                    ("X", "乙Ⅱ", "L2", "T"), ("Y", "丙Ⅱ", "L2", "T")])
+    sw = _swd({"S": ([10] * 3 + [90, 90], FLAT), "S1": ([10] * 3 + [80, 80], FLAT),
+               "X": ([10] * 3 + [30, 30], FLAT), "Y": ([10] * 3 + [20, 20], FLAT)})
+    r = hot_industries(sw, cl, {"半导体"}, DAYS[-1], HOT_CFG)
+    by = {x["name"]: x for x in r}
+    assert [x["name"] for x in r][:2] == ["半导体", "数字芯片设计"]  # 仍参与排名
+    assert by["半导体"]["covered"] and by["数字芯片设计"]["covered"]  # 子行业随父级一并标记
+    assert not by["乙"]["covered"] and by["乙"]["rank"] == 3
+    assert [x["name"] for x in pick_dynamic(r, 2)] == ["乙", "丙"]
+
+
+def test_hot_industries_no_parent_child_pair():
+    cl = _classify([("P", "父Ⅱ", "L2", "T"), ("K", "子Ⅲ", "L3", "P"), ("O", "他Ⅱ", "L2", "T")])
+    sw = _swd({"P": ([10] * 3 + [90, 90], FLAT), "K": ([10] * 3 + [80, 80], FLAT),
+               "O": ([10] * 3 + [20, 20], FLAT)})
+    r = hot_industries(sw, cl, set(), DAYS[-1], HOT_CFG)
+    assert [x["name"] for x in r] == ["父", "子", "他"]
+    assert [x["name"] for x in pick_dynamic(r, 2)] == ["父", "他"]
+
+
+def test_hot_industries_min_float_and_history():
+    cl = _classify([("A", "甲Ⅱ", "L2", "T"), ("B", "乙Ⅱ", "L2", "T"), ("C", "丙Ⅱ", "L2", "T"),
+                    ("N", "非行业", "L1", "")])
+    sw = _swd({"A": ([10] * 3 + [30, 30], FLAT), "B": ([10] * 3 + [30, 30], FLAT),
+               "C": ([10] * 3 + [30, 30], FLAT), "N": ([10] * 3 + [30, 30], FLAT),
+               "Z": ([10] * 3 + [30, 30], FLAT)}, mv={"A": 1000, "B": 50, "C": 1000, "N": 1000, "Z": 1000})
+    sw = sw[~((sw["ts_code"] == "C") & (sw["trade_date"] == DAYS[0]))]  # 丙缺一天 → 历史不足
+    r = hot_industries(sw, cl, set(), DAYS[-1], HOT_CFG)
+    assert [x["name"] for x in r] == ["甲"]  # B 市值不足；C 历史不足；N 是 L1；Z 不在分类里
+
+
+def test_hot_industries_empty_inputs():
+    assert hot_industries(None, None, set(), "20261105", HOT_CFG) == []
+    assert hot_industries(pd.DataFrame(), _classify([]), set(), "20261105", HOT_CFG) == []
+
+
+def test_hot_fixed_names_top_k_incl_l3_child():
+    ranked = [dict(name="X", level="L2", parent="", rank=1), dict(name="某L3", level="L3", parent="光伏设备", rank=2),
+              dict(name="白酒", level="L2", parent="", rank=3), dict(name="Y", level="L2", parent="", rank=4)]
+    assert hot_fixed_names(ranked, 3) == {"光伏设备·组件", "消费白酒·零售"}  # L3 的父级 L2 = 固定板块关键词
+    assert hot_fixed_names(ranked, 1) == set()
+    assert hot_fixed_names([], 3) == set()
+
+
+def test_profit_ratio_weighted():
+    win = pd.DataFrame({"ts_code": ["A.SH", "B.SZ", "C.BJ", "D.SZ", "E.SZ"],
+                        "winner_rate": [80.0, 20.0, 99.0, 50.0, np.nan]})
+    mv = pd.DataFrame({"ts_code": ["A.SH", "B.SZ", "C.BJ", "E.SZ"], "circ_mv": [3.0, 1.0, 100.0, 5.0]})
+    assert profit_ratio(win, mv, None) == pytest.approx(65.0)
+    assert profit_ratio(win, mv, {"A.SH"}) == pytest.approx(80.0)
+    assert profit_ratio(win, mv, {"D.SZ"}) is None  # 缺市值
+    assert profit_ratio(win, mv, set()) is None
+    assert profit_ratio(win.iloc[0:0], mv, None) is None and profit_ratio(None, mv, None) is None
+
+
+def test_match_sectors_extra_only_in_sw_mode():
+    basic = pd.DataFrame({"ts_code": ["A.SH", "B.SZ"], "name": ["a", "b"], "industry": ["白酒", "物流"]})
+    sw = pd.DataFrame({"ts_code": ["A.SH", "B.SZ"], "l1_name": ["x", "y"],
+                       "l2_name": ["白酒Ⅱ", "物流Ⅱ"], "l3_name": ["白酒Ⅲ", "快递Ⅲ"]})
+    extra = [{"name": "物流", "icon": "🔥", "sw": ["物流"], "hot": True}]
+    m, _ = match_sectors(basic, sw, set(), extra=extra)
+    assert m["物流"] == {"B.SZ"} and len(m) == len(config.SECTORS) + 1
+    m2, _ = match_sectors(basic, None, set(), extra=extra)
+    assert "物流" not in m2 and len(m2) == len(config.SECTORS)
+
+
+def test_wall_hot_flags_and_icons():
+    mf = _mf([("S0.SZ", 10, 0, 0, 0, 90, 0, 0, 0), ("S1.SZ", 40, 0, 0, 0, 60, 0, 0, 0)])
+    st = {"消费白酒·零售": {"S0.SZ"}, "物流": {"S1.SZ"}, "光伏设备·组件": {"S0.SZ"}}
+    extra = [{"name": "物流", "icon": "🔥", "sw": ["物流"], "hot": True}]
+    wall = concentration_wall(mf, None, st, None, extra=extra, hot_fixed={"消费白酒·零售"})
+    by = {r["name"]: r for r in wall}
+    assert by["物流"]["hot"] and by["物流"]["icon"] == "🔥"
+    assert by["消费白酒·零售"]["hot"] and by["消费白酒·零售"]["icon"] == "🍶"
+    assert by["光伏设备·组件"]["hot"] is False
+    assert wall[0]["name"] == "物流"  # 浓度最高，热门行一起排序

@@ -599,3 +599,39 @@ def test_trade_days_between_sorted_with_future():
     assert kw["exchange"] == "SSE" and kw["is_open"] == 1 and kw["end_date"] == "20261130"
     src2, _ = make(FakePro(trade_cal=pd.DataFrame()))
     assert src2.trade_days_between("20261120", "20261130") == []
+
+
+def test_sw_classify_columns():
+    df = pd.DataFrame({"index_code": ["801081.SI"], "industry_name": ["半导体"], "level": ["L2"],
+                       "parent_code": ["801080.SI"], "x": 1})
+    pro = FakePro(index_classify=df)
+    src, _ = make(pro)
+    out = src.sw_classify()
+    assert list(out.columns) == ["index_code", "industry_name", "level", "parent_code"]
+    assert pro.calls[0][1]["src"] == "SW2021"
+
+
+def test_sw_daily_range_paginates_sorted():
+    def page(**kw):
+        n = 4000 if kw.get("offset", 0) == 0 else 3
+        return pd.DataFrame({"ts_code": "801081.SI", "trade_date": ["20261105"] * n, "name": "半导体Ⅱ",
+                             "pct_change": 1.0, "amount": 2.0, "float_mv": 3.0, "extra": 1})
+
+    pro = FakePro(sw_daily=page)
+    src, _ = make(pro)
+    df = src.sw_daily_range("20260920", "20261105")
+    assert len(df) == 4003 and list(df.columns) == ["ts_code", "trade_date", "name", "pct_change", "amount", "float_mv"]
+    assert pro.calls[1][1]["offset"] == 4000 and pro.calls[0][1]["start_date"] == "20260920"
+
+
+def test_winner_rate_paginates_and_circ_mv():
+    def cyq(**kw):
+        n = 6000 if kw.get("offset", 0) == 0 else 2
+        return pd.DataFrame({"ts_code": [f"{i}" for i in range(n)], "winner_rate": 50.0, "extra": 1})
+
+    pro = FakePro(cyq_perf=cyq, daily_basic=pd.DataFrame({"ts_code": ["600519.SH"], "circ_mv": [1.0], "x": 1}))
+    src, _ = make(pro)
+    assert len(src.winner_rate("20261105")) == 6002
+    assert pro.calls[0][1]["trade_date"] == "20261105"
+    mv = src.circ_mv("20261105")
+    assert list(mv.columns) == ["ts_code", "circ_mv"] and len(mv) == 1

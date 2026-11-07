@@ -76,7 +76,7 @@ def test_build_demo_end_to_end(tmp_path):
     assert "FXCM" in usd["note"] and "DXY" in usd["note"]  # 12759 这类点位不是 DXY，须在卡片上写明
     assert len(data["fingerprint"]["groups"]) == 4
     assert data["temperature"]["series"] and data["temperature"]["kpis"]["today"] is not None
-    assert data["concentration"]["date"] == DATE and len(data["concentration"]["rows"]) == 15
+    assert data["concentration"]["date"] == DATE and len(data["concentration"]["rows"]) == 20
     assert data["news"] == {"domestic": [], "external": [], "status": "disabled", "since": None}
     assert isinstance(data["meta"]["warnings"], list)
     assert "TUSHARE_TOKEN" not in html
@@ -710,3 +710,77 @@ def test_holdings_update_notice(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "HUIJIN_UPDATED", {"date": "20261001", "source": "2026 年中期报告"})
     _, data = run(tmp_path)
     assert data["holdings"]["updated"]["is_new"] is False
+
+
+def test_concentration_hot_rows_and_profit(tmp_path):
+    _, data = run(tmp_path)
+    cn = data["concentration"]
+    fixed = {s["name"] for s in config.SECTORS}
+    dyn = [r for r in cn["rows"] if r["name"] not in fixed]
+    assert len(cn["rows"]) == 20 and len(dyn) == 5
+    assert all(r["hot"] and r["icon"] == config.HOT_SECTORS["icon"] for r in dyn)
+    assert len({r["name"] for r in dyn}) == 5
+    done = [r for r in cn["rows"] if r["profit"] is not None]
+    assert done and all(abs(r["profit"] + r["trapped"] - 100) < 0.11 for r in done)
+    assert cn["market_profit"] is not None and abs(cn["market_profit"] + cn["market_trapped"] - 100) < 0.11
+    assert cn["profit_date"] == DATE
+    hot = cn["hot"]
+    assert len(hot) == config.HOT_SECTORS["top_k"] and [h["rank"] for h in hot] == list(range(1, len(hot) + 1))
+    assert set(hot[0]) >= {"code", "name", "level", "amount_ratio", "pct_n", "score", "rank", "covered"}
+    import metrics_sentiment as ms
+    assert {r["name"] for r in cn["rows"] if r["hot"] and r["name"] in fixed} == ms.hot_fixed_names(hot, config.HOT_SECTORS["top_k"])
+
+
+class OneDayLateWinner(DemoSource):
+    def winner_rate(self, trade_date):
+        if trade_date == DATE:
+            return super().winner_rate(trade_date).iloc[0:0]
+        return super().winner_rate(trade_date)
+
+
+def test_profit_falls_back_to_previous_day(tmp_path, monkeypatch):
+    _, data = run(tmp_path, OneDayLateWinner(), monkeypatch=monkeypatch)
+    cn = data["concentration"]
+    assert cn["profit_date"] is not None and cn["profit_date"] < DATE
+    assert any("获利盘数据截至" in w for w in data["meta"]["warnings"])
+    assert cn["market_profit"] is not None
+
+
+class NoClassify(DemoSource):
+    def sw_classify(self):
+        raise RuntimeError("boom")
+
+
+def test_hot_degrades_when_classify_fails(tmp_path, monkeypatch):
+    _, data = run(tmp_path, NoClassify(), monkeypatch=monkeypatch)
+    cn = data["concentration"]
+    assert len(cn["rows"]) == 15 and cn["hot"] == [] and not any(r["hot"] for r in cn["rows"])
+    assert cn["market_profit"] is not None
+
+
+class FixedL3Hot(DemoSource):
+    """让固定板块「光伏设备·组件」的 L3 子行业放量暴涨 → 该固定板块标热。"""
+    def sw_classify(self):
+        cl = super().sw_classify()
+        l2 = cl[cl["industry_name"] == "光伏设备Ⅱ"]["index_code"].iloc[0]
+        extra = pd.DataFrame([("899999.SI", "光伏电池组件Ⅲ", "L3", l2)], columns=cl.columns)
+        return pd.concat([cl, extra], ignore_index=True)
+
+    def sw_daily_range(self, start, end):
+        df = super().sw_daily_range(start, end)
+        one = df[df["ts_code"] == df["ts_code"].iloc[0]].copy()
+        one["ts_code"], one["name"], one["float_mv"] = "899999.SI", "光伏电池组件Ⅲ", 9e6
+        days = sorted(one["trade_date"])
+        one["amount"] = [1e5 if d < days[-5] else 1e7 for d in one["trade_date"]]
+        one["pct_change"] = [0.0 if d < days[-5] else 9.0 for d in one["trade_date"]]
+        return pd.concat([df, one], ignore_index=True)
+
+
+def test_fixed_sector_marked_hot_by_l3_child(tmp_path, monkeypatch):
+    _, data = run(tmp_path, FixedL3Hot(), monkeypatch=monkeypatch)
+    cn = data["concentration"]
+    row = next(r for r in cn["rows"] if r["name"] == "光伏设备·组件")
+    assert row["hot"] is True
+    assert cn["hot"][0]["name"] == "光伏电池组件" and cn["hot"][0]["covered"] is True
+    assert "光伏电池组件" not in {r["name"] for r in cn["rows"]}  # covered 的不当动态行
+    assert len(cn["rows"]) == 20
