@@ -2,9 +2,7 @@ name: build
 
 on:
   schedule:
-    - cron: "30 8 * * 1-5"
-    - cron: "30 12 * * 1-5"
-    - cron: "30 1 * * 2-6"  # 09:30 北京时间，周二至周六 = 每个交易日（周一至周五）的「次日早晨」补跑
+    - cron: "30 12 * * 1-5"  # 每个工作日 20:30 北京时间跑一次（此时资金流、板块、浓度、龙虎榜、尾盘基本已出）
   workflow_dispatch:
 
 permissions:
@@ -18,6 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write  # 把当天数据存档提交回仓库
     env:
       TZ: Asia/Shanghai
     steps:
@@ -27,10 +27,20 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: pytest -q
-      - run: python build.py --out site/index.html
+      - run: python build.py --out site/index.html --archive history
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      - name: 存档当天数据到 history/
+        continue-on-error: true  # 存档失败不影响页面发布，运行页会出现黄色提示
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add history
+          if git diff --cached --quiet; then echo "存档无变化"; exit 0; fi
+          git commit -q -m "data: 存档 $(git diff --cached --name-only | xargs -n1 basename | sed 's/\.json$//' | paste -sd ' ' -)"
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

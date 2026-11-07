@@ -42,6 +42,11 @@ def to_json(payload: dict) -> str:
              .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
 
 
+def archive_json(payload: dict) -> str:
+    """存档用 JSON：与页面内嵌的数据相同，但带缩进便于在 GitHub 上阅读。"""
+    return json.dumps(_clean(payload), ensure_ascii=False, allow_nan=False, indent=1) + "\n"
+
+
 def render(template_path: str, payload: dict, out_path: str) -> None:
     """把 payload 嵌入模板中唯一的 `/*__DATA__*/null`；找不到或出现多处则抛 ValueError。"""
     with open(template_path, encoding="utf-8") as fh:

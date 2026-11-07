@@ -39,7 +39,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 - 缺失值保持空值，**绝不补 0**，也不为了好看去填补缺失日期。
 - 测试：`.venv/bin/python -m pytest -q`。
 - **接口配额（本账号实测，调试时务必留意）**：
-  - `stk_mins`（分钟线）：服务端提示「频率超限(1次/小时)」，且分钟数据每日 19–20 点才更新。所以尾盘占比只用**一只代表 ETF（`config.TAIL_CODE` = 510300.SH）、每次构建只调 1 次**；调用失败则显示「无分钟数据」（降级，不影响其他面板）。16:30 那次运行取不到当天分钟数据，属正常。
+  - `stk_mins`（分钟线）：服务端提示「频率超限(1次/小时)」，且分钟数据每日 19–20 点才更新。所以尾盘占比只用**一只代表 ETF（`config.TAIL_CODE` = 510300.SH）、每次构建只调 1 次**；调用失败则显示「无分钟数据」（降级，不影响其他面板）。19 点前手动运行时取不到当天分钟数据，属正常。
   - `major_news`：「40次/天、30次/小时」。新闻按时间向前翻页（每页最多 800 行），单次构建最多调用 `config.NEWS_MAX_CALLS`（8）次，每天 3 次构建共 24 次，给手动运行留余量；用完预算、撞到配额或某页重试后仍失败，就只保留已取到的最新部分并记 WARNING，因此新闻时间线覆盖的天数取决于当天的新闻量与剩余配额。
   - 小时 / 天配额类的「频率超限」不会重试（重试没有意义）。反复调试请避免频繁完整构建。
 - 在浏览器里看本机产物时，建议 `cd site && python3 -m http.server 8000` 再打开 `http://localhost:8000`。
@@ -54,19 +54,15 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 2. Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
 3. Actions 页手动点一次 `build`（`workflow_dispatch`）确认成功，Pages 地址能从外网打开。
 
-**三次定时运行（北京时间，周二至周六 / 周一至周五，cron 用 UTC）**
-
-| 时间 | cron（UTC） | 主要补齐的内容 |
-|---|---|---|
-| 16:30（周一至周五） | `30 8 * * 1-5` | 日线、成交指纹、外盘、新闻先出；两融、龙虎榜、资金流等可能还没出 |
-| 20:30（周一至周五） | `30 12 * * 1-5` | 资金流、板块流向、韭菜浓度、沪深 300 补齐（尾盘分钟线通常此时才有，但受 `stk_mins` 限频，见上文） |
-| 次日 09:30（**周二至周六**） | `30 1 * * 2-6` | ETF 份额回填（深交所份额晚一天披露）、两融前一日数据；周六这一次补的是周五，所以是周二至周六而不是周一至周五 |
+**每天一次定时运行**：每个工作日北京时间 **20:30**（cron `30 12 * * 1-5`，UTC）。此时日线、资金流、板块流向、韭菜浓度、龙虎榜、尾盘分钟线基本都已发布。仍会晚一天的是数据源本身的节奏：两融（交易所次日才发齐）、外盘日线（布伦特、美元指数、联邦基金期货）、深交所 ETF 份额；它们显示最近可用日期，并在页脚「数据告警」里说明。想提前看可以随时在 Actions 页手动 Run workflow。
 
 每次都是整页重建，取「数据已就绪的最新交易日」；非交易日照常跑，内容不变。GitHub cron 高峰期可能延迟十几分钟到一小时。build job 超时 30 分钟，deploy job 10 分钟；`pages: write` / `id-token: write` 只授予 deploy job。
 
 **退出码与部署**：构建退出码 3（整体取数失败，见上文「运行」）会让 build job 失败，deploy job 不会运行，Pages 上保持上一份好页面；之后下一次定时运行会自动重试。看到 Actions 里 build 红了，先看日志里的 ERROR：多半是 token 失效或 tushare 不可用。
 
-**60 天无活动会停掉定时任务**：GitHub 会在公开仓库 60 天没有任何仓库活动（push、PR 等）后自动停用定时（`schedule`）工作流。恢复方法：仓库 Actions 页 → 左侧选 `build` → 点页面上的 **Enable workflow**（或随手提交一次改动再手动 Run workflow）。建议每个月左右有一次提交，或手动运行一次。
+**每日数据存档**：每次构建成功（非演示数据）后，当天页面用到的全部数据另存为 `history/<交易日 YYYY-MM-DD>.json`，由 `github-actions[bot]` 提交回 `main`（提交信息 `data: 存档 2026-11-06`）。同一交易日再跑会覆盖成最新一版，之前的版本留在 Git 历史里。文件里 `meta.code_version` 是当时代码的提交号，以后改了规则能分清哪些天按旧规则算。存档步骤失败不影响页面发布（运行页显示黄色提示）。本地改代码前先 `git pull`，因为机器人每天会往 `main` 提交。用法：`python build.py --archive history`（`--demo` 时不存）。
+
+**60 天无活动会停掉定时任务**：GitHub 会在公开仓库 60 天没有任何仓库活动（push、PR 等）后自动停用定时（`schedule`）工作流。每日存档提交本身算仓库活动，正常运转时不会触发；若连续多日构建失败没有存档，仍可能被停。恢复方法：仓库 Actions 页 → 左侧选 `build` → 点页面上的 **Enable workflow**（或随手提交一次改动再手动 Run workflow）。建议每个月左右有一次提交，或手动运行一次。
 
 **launchd 兜底只在 Actions 连不上 tushare 时才需要**（海外机房 IP 被限等）：此时改为本机 macOS `launchd` 在同样三个时间运行 `build.py`，再把 `site/index.html` 推到 Pages 分支，代价是那三个时间点 Mac 需要开机联网。Actions 能正常取数就不要用这个方案。
 
@@ -174,6 +170,7 @@ summary.py             # 四句结论
 render.py / template.html   # 渲染单文件 HTML（ECharts 5.5.0 来自 cdnjs，其余内联）
 build.py               # 命令行入口：取数 → 计算 → 渲染
 data/policy_ops.csv    # 手工维护的政策工具表
+history/               # 每日数据存档（构建机器人自动提交，一个交易日一个 JSON）
 ```
 
 ## 免责声明

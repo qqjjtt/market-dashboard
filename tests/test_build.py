@@ -446,3 +446,52 @@ def test_scrub_masks_fred_api_key(monkeypatch):
     monkeypatch.setenv("TUSHARE_TOKEN", "SECRET123")
     monkeypatch.setenv("FRED_API_KEY", "FREDKEY456")
     assert build._scrub("a SECRET123 b FREDKEY456") == "a *** b ***"
+
+
+# ---------------------------------------------------------------- 每日存档 --archive
+
+def _real_run(tmp_path, monkeypatch, *extra):
+    """非 demo 模式运行（数据源换成 DemoSource，不联网），返回退出码与输出页路径。"""
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (DemoSource(), DemoFred()))
+    out = tmp_path / "site" / "i.html"
+    return main(["--out", str(out), "--date", DATE, *extra]), out
+
+
+def test_archive_writes_payload_named_by_trade_date(tmp_path, monkeypatch):
+    monkeypatch.setenv("GITHUB_SHA", "abcdef1234567890")
+    code, out = _real_run(tmp_path, monkeypatch, "--archive", str(tmp_path / "history"))
+    assert code == 0
+    files = list((tmp_path / "history").glob("*.json"))
+    assert len(files) == 1
+    data = json.loads(files[0].read_text(encoding="utf-8"))
+    td = data["meta"]["trade_date"]
+    assert files[0].name == f"{td[:4]}-{td[4:6]}-{td[6:]}.json"
+    assert data["meta"]["demo"] is False and data["meta"]["code_version"] == "abcdef1"
+    assert data == json.loads(extract_data_json(out.read_text(encoding="utf-8")))
+
+
+def test_archive_overwrites_same_trade_date(tmp_path, monkeypatch):
+    hist = tmp_path / "history"
+    _real_run(tmp_path, monkeypatch, "--archive", str(hist))
+    _real_run(tmp_path, monkeypatch, "--archive", str(hist))
+    assert len(list(hist.glob("*.json"))) == 1
+    assert not list(hist.glob("*.tmp"))
+
+
+def test_code_version_none_outside_ci(tmp_path, monkeypatch):
+    monkeypatch.delenv("GITHUB_SHA", raising=False)
+    _, data = run(tmp_path)
+    assert data["meta"]["code_version"] is None
+
+
+def test_demo_never_archived(tmp_path):
+    out = tmp_path / "i.html"
+    assert main(["--demo", "--out", str(out), "--date", DATE, "--archive", str(tmp_path / "history")]) == 0
+    assert not (tmp_path / "history").exists()
+
+
+def test_total_failure_archives_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (EmptyDailySource(), DemoFred()))
+    out = tmp_path / "i.html"
+    assert main(["--out", str(out), "--date", DATE, "--archive", str(tmp_path / "history")]) == 3
+    assert not (tmp_path / "history").exists()

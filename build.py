@@ -23,7 +23,7 @@ import config
 import metrics_etf as me
 import metrics_liquidity as ml
 import metrics_sentiment as ms
-from render import render
+from render import archive_json, render
 from summary import build_conclusions, signed
 
 log = logging.getLogger("build")
@@ -743,12 +743,25 @@ def _make_sources(demo: bool):
     return TushareSource.from_env(), FredSource.from_env()
 
 
+def archive(payload: dict, directory: str) -> Path:
+    """把 payload 写成 directory/<交易日 YYYY-MM-DD>.json；先写临时文件再替换，同一交易日覆盖。"""
+    td = payload["meta"]["trade_date"]
+    path = Path(directory) / f"{td[:4]}-{td[4:6]}-{td[6:]}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(archive_json(payload), encoding="utf-8")
+    os.replace(tmp, path)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成 A 股盘后看板单文件 HTML")
     ap.add_argument("--date", help="目标日期 YYYYMMDD，默认北京时间当日")
     ap.add_argument("--out", default=DEFAULT_OUT, help=f"输出路径，默认 {DEFAULT_OUT}")
     ap.add_argument("--round-start", dest="round_start", help="本轮起始日 YYYYMMDD")
     ap.add_argument("--demo", action="store_true", help="使用随机模拟数据")
+    ap.add_argument("--archive", metavar="DIR",
+                    help="另存当天数据为 DIR/<交易日 YYYY-MM-DD>.json，同一交易日覆盖（演示数据不存）")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -763,8 +776,11 @@ def main(argv: list[str] | None = None) -> int:
     except FatalBuildError as e:
         log.error("整体取数失败，不生成页面（保留上一份）：%s", _scrub(str(e)))
         return 3
+    payload["meta"]["code_version"] = (os.environ.get("GITHUB_SHA") or "")[:7] or None
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     render(str(TEMPLATE), payload, args.out)
+    if args.archive and not args.demo:
+        log.info("已存档 %s", archive(payload, args.archive))
     ws = payload["meta"]["warnings"]
     log.info("已生成 %s（交易日 %s，demo=%s，%d 条警告）", args.out, payload["meta"]["trade_date"], args.demo, len(ws))
     for w in ws:
