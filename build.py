@@ -760,9 +760,20 @@ def _default_etf():
             "holdings": _empty_holdings()}
 
 
-def _empty_holdings():
+def _holdings_updated(D: str) -> dict:
+    """最近一次按定期报告更新的日期 / 依据；D 在更新后 14 个自然日内 → is_new。"""
+    up = dict(getattr(config, "HUIJIN_UPDATED", None) or {})
+    d = str(up.get("date") or "")
+    try:
+        gap = (datetime.strptime(D, "%Y%m%d") - datetime.strptime(d, "%Y%m%d")).days
+    except ValueError:
+        gap = None
+    return {"date": d or None, "source": up.get("source"), "is_new": gap is not None and 0 <= gap <= 14}
+
+
+def _empty_holdings(D: str | None = None):
     return {"base_date": config.HUIJIN_BASE_DATE, "date": None, "total": None, "prev_total": None,
-            "change": None, "rows": []}
+            "change": None, "rows": [], "updated": _holdings_updated(D) if D else None}
 
 
 def _etf(c: Ctx, round_start: str | None) -> dict:
@@ -845,7 +856,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     prev_day = [d for d in all_days if d < D]
     out["holdings"] = _safe("汇金持仓估算",
                             lambda: _holdings(shares, closes, names, D, prev_day[-1] if prev_day else None),
-                            _empty_holdings)
+                            lambda: _empty_holdings(D))
 
     # --- 成交指纹（尾盘占比与指纹各自兜底：任何一块失败都不能拖垮上面已算好的国家队净申赎）
     prev = [d for d in all_days if d < D]
@@ -890,7 +901,7 @@ def _holdings(shares: dict, closes: dict, names: dict, D: str, prev_day: str | N
     return {"base_date": config.HUIJIN_BASE_DATE, "date": max(dates) if dates else None, "total": total,
             "prev_total": prev_total,
             "change": round(total - prev_total, 1) if total is not None and prev_total is not None else None,
-            "rows": rows}
+            "rows": rows, "updated": _holdings_updated(D)}
 
 
 def _fingerprint(c: Ctx, closes: dict, all_days: list[str], yday: str | None) -> dict:

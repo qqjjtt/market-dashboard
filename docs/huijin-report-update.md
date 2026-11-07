@@ -40,6 +40,7 @@
 
 ## 改完之后
 
+0. 把 `config.HUIJIN_UPDATED` 改成 `{"date": "<今天 YYYYMMDD>", "source": "<依据的报告名，如 2027 年第 1 季度报告>"}`：页面「汇金持仓估算」标题旁显示「最近更新」，之后 14 天内总览「近期提醒」会提示一次（这就是给用户的页面通知）。
 1. `.venv/bin/python -m pytest -q` 必须全绿。
 2. `git pull --rebase origin main`（构建机器人每天会提交存档），再提交：`data: 汇金持仓校准更新（<报告名>，<涉及代码>）`，正文列出每个改动和来源 PDF 链接，结尾空一行加 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`。
 3. `git push origin main`。

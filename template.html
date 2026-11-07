@@ -58,6 +58,8 @@
   .chart-msg { color: var(--muted); text-align: center; padding: 40px 0; }
   .note { font-size: 13px; color: var(--muted); }
 
+  .rl-news { display: block; font-weight: 600; color: var(--ink); text-decoration: none; }
+  .rl-news::before { content: "新"; display: inline-block; font-size: 11px; font-weight: 600; color: #fff; background: var(--warm); border-radius: 999px; padding: 0 7px; margin-right: 8px; line-height: 18px; vertical-align: 1px; }
   /* asset strip */
   .asset-card { margin-top: 16px; padding: 12px 8px; }
   .asset-head { color: var(--muted); font-size: 13px; padding: 0 10px 8px; }
@@ -751,10 +753,16 @@ function expiryNoteFor(kinds) {
 }
 function renderReminders(p) {
   var cal = DATA.calendar, up = cal && Array.isArray(cal.upcoming) ? cal.upcoming.filter(Boolean) : [];
-  if (!up.length) return;
-  var todayKeys = (Array.isArray(cal.today) ? cal.today : []).filter(Boolean).map(function (e) { return e.date + "|" + e.market + "|" + e.name; });
-  secTitle(p, "近期提醒", "未来 5 个交易日内的期货、期权到期日");
+  var HU = (DATA.holdings || {}).updated, hNew = HU && HU.is_new && HU.date && HU.source;
+  if (!up.length && !hNew) return;
+  var todayKeys = (cal && Array.isArray(cal.today) ? cal.today : []).filter(Boolean).map(function (e) { return e.date + "|" + e.market + "|" + e.name; });
+  secTitle(p, "近期提醒", "未来 5 个交易日内的期货、期权到期日，以及数据更新");
   var card = el("div", "card remind");
+  if (hNew) {
+    var hl = el("a", "rl rl-news", "国家队持仓已按 " + HU.source + " 更新（" + fmtDay(HU.date) + "）");
+    hl.href = "#team";
+    card.appendChild(hl);
+  }
   up.forEach(function (e) {
     var isToday = todayKeys.indexOf(e.date + "|" + e.market + "|" + e.name) >= 0;
     var d = typeof e.date === "string" && /^\d{8}$/.test(e.date) ? new Date(+e.date.slice(0, 4), +e.date.slice(4, 6) - 1, +e.date.slice(6, 8)) : null;
@@ -1374,7 +1382,8 @@ function renderTeam(p) {
   guard(p, function () {
     var H = DATA.holdings;
     if (!H || !Array.isArray(H.rows) || !H.rows.length) return;
-    secTitle(p, "汇金持仓估算", "按 2025 年末披露份额估算，并用 2026 年半年报、三季报的披露上限校准，误差可能较大");
+    var U = H.updated || {};
+    secTitle(p, "汇金持仓估算", (U.date && U.source ? "最近更新 " + fmtDay(U.date) + "，依据 " + U.source + " · " : "") + "按定期报告披露的份额估算，误差可能较大");
     renderHoldings(p, H);
   });
   guard(p, function () {

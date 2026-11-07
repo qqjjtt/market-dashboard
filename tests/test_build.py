@@ -700,3 +700,13 @@ def test_gauge_no_duplicate_fetches(tmp_path, monkeypatch):
     run(tmp_path, src=Spy(), monkeypatch=monkeypatch)
     assert len(calls) == len(set(calls))
     assert {c[:2] for c in calls if c[0] == "fut_mapping"} == {("fut_mapping", "T.CFX"), ("fut_mapping", "SC.INE")}
+
+
+def test_holdings_update_notice(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "HUIJIN_UPDATED", {"date": "20261102", "source": "2026 年第 3 季度报告"})
+    _, data = run(tmp_path)  # DATE = 20261106，更新后第 4 天
+    up = data["holdings"]["updated"]
+    assert up == {"date": "20261102", "source": "2026 年第 3 季度报告", "is_new": True}
+    monkeypatch.setattr(config, "HUIJIN_UPDATED", {"date": "20261001", "source": "2026 年中期报告"})
+    _, data = run(tmp_path)
+    assert data["holdings"]["updated"]["is_new"] is False
