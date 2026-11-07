@@ -638,7 +638,9 @@ def _news(c: Ctx, date: str) -> dict:
     fmt = "%Y-%m-%d %H:%M:%S"
     df = _fetch("新闻", c.src.major_news, start.strftime(fmt), end.strftime(fmt))
     out = ml.filter_news(df if isinstance(df, pd.DataFrame) else pd.DataFrame(),
-                         config.NEWS_KW_DOMESTIC, config.NEWS_KW_EXTERNAL)
+                         config.NEWS_KW_DOMESTIC, config.NEWS_KW_EXTERNAL,
+                         exclude=config.NEWS_EXCLUDE, us_markers=config.NEWS_US_MARKERS,
+                         foreign_markers=config.NEWS_FOREIGN_MARKERS)
     # 取数覆盖：区分「取数失败 / 只覆盖了一部分」与「真的没有匹配新闻」
     status, since = "failed", None
     if df is not None:

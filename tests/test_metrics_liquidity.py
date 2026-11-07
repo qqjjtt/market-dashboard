@@ -270,34 +270,74 @@ def test_sector_flow_rank_empty_and_nan():
 
 # ---------- filter_news ----------
 
-KD = ["互换便利", "再贷款", "央行", "降息"]
-KE = ["美联储", "加息", "英国央行", "日本央行", "降息"]
+KD = ["互换便利", "再贷款", "逆回购", "降息", "LPR"]
+KE = ["美联储", "加息", "降息", "美债", "非农", "CPI"]
+EX = ["立案", "黄金"]
+US = ["美国", "美联储", "美债", "美元", "非农"]
+FG = ["英国", "日本", "欧元", "菲律宾"]
 
 
-def _news():
-    rows = [
-        ("2026-11-05 09:00:00", "10jqka", "央行：今日开展 5000 亿逆回购", "http://a/1"),
-        ("2026-11-05 10:00:00", "10jqka", "华福证券中标央行第三批互换便利操作12亿元", "http://a/2"),
-        ("2026-11-05 08:00:00", "cls", "央行：今日开展 5000 亿逆回购", "http://a/1b"),  # 重复标题，较旧
-        ("2026-11-04 12:00:00", "cls", "英国央行三年多来首度加息", "http://a/3"),
-        ("2026-11-04 13:00:00", "cls", "央行与美联储同日表态", None),
-        ("2026-11-03 13:00:00", "cls", "美联储官员称不急于行动", ""),
-        ("2026-11-03 14:00:00", "cls", "今日天气晴朗", "http://a/9"),
-    ]
+def _filter(df, kd=KD, ke=KE):
+    return filter_news(df, kd, ke, exclude=EX, us_markers=US, foreign_markers=FG)
+
+
+def _df(rows):
     return pd.DataFrame(rows, columns=["pub_time", "src", "title", "url"])
 
 
-def test_filter_news():
-    d = filter_news(_news(), KD, KE)
+def _news():
+    return _df([
+        ("2026-11-05 09:00:00", "10jqka", "央行：今日开展 5000 亿逆回购", "http://a/1"),
+        ("2026-11-05 10:00:00", "10jqka", "华福证券中标第三批互换便利操作12亿元", "http://a/2"),
+        ("2026-11-05 08:00:00", "cls", "央行：今日开展 5000 亿逆回购", "http://a/1b"),  # 重复标题，较旧
+        ("2026-11-04 12:00:00", "cls", "英国央行三年多来首度加息", "http://a/3"),
+        ("2026-11-04 13:00:00", "cls", "美联储官员称不急于行动", ""),
+        ("2026-11-04 14:00:00", "cls", "再贷款与美联储同日表态", None),
+        ("2026-11-03 13:00:00", "cls", "今日天气晴朗", "http://a/9"),
+    ])
+
+
+def test_filter_news_splits_by_region_not_keyword():
+    d = _filter(_news())
+    dom = [n["title"] for n in d["domestic"]]
+    ext = [n["title"] for n in d["external"]]
+    assert "华福证券中标第三批互换便利操作12亿元" in dom
+    assert "美联储官员称不急于行动" in ext
+    assert "再贷款与美联储同日表态" in ext  # 含美国标记 → 外围
+    assert not any("英国央行" in t for t in dom + ext)  # 非美外围央行不要
     assert d["domestic"][0]["flag"] is True  # 12亿元那条，时间最新
-    assert "12亿元" in d["domestic"][0]["title"]
-    assert any("英国央行" in n["title"] for n in d["external"])
-    assert not any("美联储" in n["title"] and "央行与" in n["title"] for n in d["external"])
-    assert any("央行与" in n["title"] for n in d["domestic"])  # 双命中 → 国内
+
+
+def test_filter_news_us_marker_needs_external_keyword():
+    d = _filter(_df([
+        ("2026-11-05 10:00:00", "x", "10月末我国外汇储备规模为34052亿美元", "u"),   # 有美元标记，无外围词
+        ("2026-11-05 09:00:00", "x", "马斯克：SpaceX 年化营收或超5000亿美元", "u"),
+        ("2026-11-05 08:00:00", "x", "美国10月非农远超预期 12月加息押注升温", "u"),
+    ]))
+    assert [n["title"] for n in d["external"]] == ["美国10月非农远超预期 12月加息押注升温"]
+    assert d["domestic"] == []
+
+
+def test_filter_news_shared_keyword_goes_by_region():
+    d = _filter(_df([
+        ("2026-11-05 10:00:00", "x", "回购增持再贷款降息并转长期制度", "u"),
+        ("2026-11-05 09:00:00", "x", "美联储年内首次降息", "u"),
+        ("2026-11-05 08:00:00", "x", "欧元区通胀创新高 12月加息预期升温", "u"),
+    ]))
+    assert [n["title"] for n in d["domestic"]] == ["回购增持再贷款降息并转长期制度"]
+    assert [n["title"] for n in d["external"]] == ["美联储年内首次降息"]
+
+
+def test_filter_news_exclude_words_drop_item():
+    d = _filter(_df([
+        ("2026-11-05 10:00:00", "x", "某公司涉嫌违规被立案 曾申请回购增持再贷款", "u"),
+        ("2026-11-05 09:00:00", "x", "美联储加息预期下黄金走弱", "u"),
+    ]))
+    assert d == {"domestic": [], "external": []}
 
 
 def test_filter_news_dedup_sort_and_shape():
-    d = filter_news(_news(), KD, KE)
+    d = _filter(_news())
     titles = [n["title"] for n in d["domestic"]]
     assert titles.count("央行：今日开展 5000 亿逆回购") == 1
     kept = [n for n in d["domestic"] if n["title"].startswith("央行：今日")][0]
@@ -309,22 +349,20 @@ def test_filter_news_dedup_sort_and_shape():
 
 
 def test_filter_news_empty_url_becomes_none():
-    d = filter_news(_news(), KD, KE)
-    ext_fed = [n for n in d["external"] if n["title"].startswith("美联储官员")][0]
-    assert ext_fed["url"] is None
-    dom = [n for n in d["domestic"] if "央行与" in n["title"]][0]
-    assert dom["url"] is None
+    d = _filter(_news())
+    by_title = {n["title"]: n for n in d["external"]}
+    assert by_title["美联储官员称不急于行动"]["url"] is None
+    assert by_title["再贷款与美联储同日表态"]["url"] is None
 
 
 def test_filter_news_flag_requires_keyword_and_amount():
-    rows = [
+    df = _df([
         ("2026-11-05 10:00:00", "x", "央行开展互换便利操作", "u"),            # 无金额
         ("2026-11-05 09:00:00", "x", "再贷款额度增加 3.5 万亿元", "u"),       # 有金额
         ("2026-11-05 08:00:00", "x", "央行今日净投放 800亿 逆回购", "u"),     # 有金额但无工具词
         ("2026-11-05 07:00:00", "x", "再贷款12 亿元落地", "u"),              # 数字与单位间空格
-    ]
-    df = pd.DataFrame(rows, columns=["pub_time", "src", "title", "url"])
-    flags = {n["title"]: n["flag"] for n in filter_news(df, KD, KE)["domestic"]}
+    ])
+    flags = {n["title"]: n["flag"] for n in _filter(df)["domestic"]}
     assert flags["央行开展互换便利操作"] is False
     assert flags["再贷款额度增加 3.5 万亿元"] is True
     assert flags["央行今日净投放 800亿 逆回购"] is False
@@ -332,21 +370,31 @@ def test_filter_news_flag_requires_keyword_and_amount():
 
 
 def test_filter_news_keywords_case_insensitive():
-    df = pd.DataFrame([("2026-11-05 10:00:00", "x", "美国 cpi 数据超预期", "u")],
-                      columns=["pub_time", "src", "title", "url"])
-    assert len(filter_news(df, ["LPR"], ["CPI"])["external"]) == 1
+    df = _df([("2026-11-05 10:00:00", "x", "美国 cpi 数据超预期", "u"),
+              ("2026-11-05 09:00:00", "x", "11月 lpr 维持不变", "u")])
+    d = _filter(df)
+    assert len(d["external"]) == 1 and len(d["domestic"]) == 1
 
 
 def test_filter_news_untrusted_title_passthrough():
-    t = "央行 {0} %s <script>alert(1)</script> {x.__class__}"
-    df = pd.DataFrame([("2026-11-05 10:00:00", "x", t, "u")], columns=["pub_time", "src", "title", "url"])
-    assert filter_news(df, KD, KE)["domestic"][0]["title"] == t
+    t = "逆回购 {0} %s <script>alert(1)</script> {x.__class__}"
+    assert _filter(_df([("2026-11-05 10:00:00", "x", t, "u")]))["domestic"][0]["title"] == t
 
 
 def test_filter_news_empty():
-    empty = pd.DataFrame(columns=["pub_time", "src", "title", "url"])
-    assert filter_news(empty, KD, KE) == {"domestic": [], "external": []}
-    assert filter_news(pd.DataFrame(), KD, KE) == {"domestic": [], "external": []}
+    assert _filter(_df([])) == {"domestic": [], "external": []}
+    assert _filter(pd.DataFrame()) == {"domestic": [], "external": []}
+
+
+def test_config_news_lists_are_focused():
+    import config
+    assert "美元" not in config.NEWS_KW_EXTERNAL and "美元指数" in config.NEWS_KW_EXTERNAL
+    for gone in ("原油", "OPEC", "关税", "地缘", "英国央行", "日本央行", "欧央行"):
+        assert gone not in config.NEWS_KW_EXTERNAL
+    for gone in ("证监会", "金融监管", "国务院", "财政部", "央行"):
+        assert gone not in config.NEWS_KW_DOMESTIC
+    assert {"立案", "处罚", "黄金"} <= set(config.NEWS_EXCLUDE)
+    assert "美联储" in config.NEWS_US_MARKERS and "英国" in config.NEWS_FOREIGN_MARKERS
 
 
 # ---------- load_policy_ops ----------
@@ -399,15 +447,15 @@ def test_load_policy_ops_missing_file_returns_empty_with_warning(tmp_path, caplo
 
 def test_filter_news_drops_null_or_empty_pub_time():
     rows = [
-        (None, "x", "央行有消息A", "u"),
-        (float("nan"), "x", "央行有消息B", "u"),
-        ("", "x", "央行有消息C", "u"),
-        ("  ", "x", "央行有消息D", "u"),
-        ("2026-11-05 10:00:00", "x", "央行有消息E", "u"),
+        (None, "x", "逆回购有消息A", "u"),
+        (float("nan"), "x", "逆回购有消息B", "u"),
+        ("", "x", "逆回购有消息C", "u"),
+        ("  ", "x", "逆回购有消息D", "u"),
+        ("2026-11-05 10:00:00", "x", "逆回购有消息E", "u"),
     ]
     df = pd.DataFrame(rows, columns=["pub_time", "src", "title", "url"])
     d = filter_news(df, KD, KE)
-    assert [n["title"] for n in d["domestic"]] == ["央行有消息E"]
+    assert [n["title"] for n in d["domestic"]] == ["逆回购有消息E"]
     assert all(n["time"] not in ("nan", "None", "") for n in d["domestic"] + d["external"])
 
 
@@ -422,11 +470,21 @@ def test_load_policy_ops_gbk_file_returns_empty_with_warning(tmp_path, caplog):
 
 def test_filter_news_keeps_timestamp_pub_time_as_string():
     rows = [
-        (pd.Timestamp("2026-11-05 10:00:00"), "x", "央行有消息T", "u"),
-        ("2026-11-04 09:00:00", "x", "央行有消息S", "u"),
-        (pd.NaT, "x", "央行有消息N", "u"),
+        (pd.Timestamp("2026-11-05 10:00:00"), "x", "逆回购有消息T", "u"),
+        ("2026-11-04 09:00:00", "x", "逆回购有消息S", "u"),
+        (pd.NaT, "x", "逆回购有消息N", "u"),
     ]
     df = pd.DataFrame(rows, columns=["pub_time", "src", "title", "url"])
     d = filter_news(df, KD, KE)
-    assert [n["title"] for n in d["domestic"]] == ["央行有消息T", "央行有消息S"]
+    assert [n["title"] for n in d["domestic"]] == ["逆回购有消息T", "逆回购有消息S"]
     assert d["domestic"][0]["time"] == "2026-11-05 10:00:00" and isinstance(d["domestic"][0]["time"], str)
+
+
+def test_config_markers_do_not_catch_dated_pboc_ops():
+    import config
+    df = _df([("2026-11-06 10:00:00", "x", "11月6日央行开展2260亿元隔夜逆回购操作", "u"),
+              ("2026-11-05 10:00:00", "x", "金价创新高 加息预期尚未回落 美联储", "u")])
+    d = filter_news(df, config.NEWS_KW_DOMESTIC, config.NEWS_KW_EXTERNAL, exclude=config.NEWS_EXCLUDE,
+                    us_markers=config.NEWS_US_MARKERS, foreign_markers=config.NEWS_FOREIGN_MARKERS)
+    assert [n["title"] for n in d["domestic"]] == ["11月6日央行开展2260亿元隔夜逆回购操作"]
+    assert d["external"] == []

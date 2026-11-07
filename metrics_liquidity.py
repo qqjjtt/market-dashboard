@@ -199,11 +199,15 @@ def _matcher(kws: list[str]):
     return lambda text: any(k in text for k in low)
 
 
-def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]) -> dict:
-    """按标题关键词把 major_news 分为 {domestic, external}。
+def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str],
+                exclude=(), us_markers=(), foreign_markers=()) -> dict:
+    """只留影响资金流动性的 major_news 标题，分为 {domestic, external}。
 
-    - 两组都命中 → domestic。但「外围词包含国内词」的情形（如「英国央行」含「央行」）先把该外围词从
-      标题里抹掉再判国内，使「英国央行加息」归外围而「央行与美联储」仍归国内。
+    - 先按地区分边，再看关键词（同一个词如「降息」两边都可能有）：
+      标题含 exclude 词（立案、黄金等杂讯）→ 丢弃；
+      含 us_markers（美国 / 美联储 / 美债…）→ 外围，须命中 kw_external，否则丢弃（如「xx 亿美元」）；
+      否则含 foreign_markers（英国 / 日本 / 欧元…，非美外围）→ 丢弃，外围只看美国；
+      否则 → 国内，须命中 kw_domestic。
     - 按 pub_time 倒序；同标题去重（保留较新）；关键词大小写不敏感。
     - 每条 {time, src, title, url, flag}；url 空 → None；标题原样透传（不 eval / format）。
     - flag：标题含(互换便利|再贷款)且含「数字+亿/万亿」→ 疑似新操作。
@@ -213,10 +217,8 @@ def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]
     if df is None or len(df) == 0 or not need.issubset(df.columns):
         return out
 
-    ext_masks = sorted({e.casefold() for e in kw_external
-                        if e and any(k and k.casefold() in e.casefold() and k.casefold() != e.casefold()
-                                     for k in kw_domestic)}, key=len, reverse=True)
     is_dom, is_ext = _matcher(kw_domestic), _matcher(kw_external)
+    is_excluded, is_us, is_foreign = _matcher(list(exclude)), _matcher(list(us_markers)), _matcher(list(foreign_markers))
 
     d = df.copy()
     # 丢弃 None/NaN 与空白时间；其余（含 Timestamp 等非 str）统一转 str，避免混合类型排序报错
@@ -232,14 +234,15 @@ def filter_news(df: pd.DataFrame, kw_domestic: list[str], kw_external: list[str]
             continue
         seen.add(title.strip())
         low = title.casefold()
-        masked = low
-        for e in ext_masks:
-            masked = masked.replace(e, " ")
-        if is_dom(masked):
-            group = "domestic"
-        elif is_ext(low):
-            group = "external"
+        if is_excluded(low):
+            continue
+        if is_us(low):
+            group = "external" if is_ext(low) else None
+        elif is_foreign(low):
+            group = None
         else:
+            group = "domestic" if is_dom(low) else None
+        if group is None:
             continue
         url, src = getattr(r, "url", None), getattr(r, "src", None)
         out[group].append({
