@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import build
+import config
 from build import main, resolve_date
 from demo import DemoFred, DemoSource
 
@@ -526,3 +527,29 @@ def test_commodity_change_from_previous_close(tmp_path, monkeypatch):
     _, data = run(tmp_path, FlatGoldSource(), monkeypatch=monkeypatch)
     gold = data["commodities"][0]
     assert gold["close"] == 510.0 and gold["date"] == "20261105" and gold["pct_chg"] == pytest.approx(2.0)
+
+
+# ---------------------------------------------------------------- 观察池天量
+
+def test_watch_pool_in_payload(tmp_path):
+    _, data = run(tmp_path)
+    w = data["watch"]
+    assert w["count"] == 25 and w["date"] == DATE and isinstance(w["spikes"], list)
+    assert "511380.SH" in config.WATCH_ETF and not set(config.WATCH_ETF) & set(config.HUIJIN6)
+
+
+class SpikeSource(DemoSource):
+    def etf_daily(self, code, start, end):
+        df = super().etf_daily(code, start, end)
+        if code == "588000.SH" and len(df):
+            df.loc[df["trade_date"] == DATE, "amount"] = df["amount"].mean() * 10
+        return df
+
+
+def test_watch_spike_reaches_page_and_team_card(tmp_path, monkeypatch):
+    _, data = run(tmp_path, SpikeSource(), monkeypatch=monkeypatch)
+    codes = [s["code"] for s in data["watch"]["spikes"]]
+    assert "588000.SH" in codes
+    team = next(c for c in data["conclusions"] if c["key"] == "team")
+    assert "观察池天量" in team["sub"]
+    assert team["text"].startswith(("仍在", "放缓", "疑似撤出"))  # 判断不受观察池影响

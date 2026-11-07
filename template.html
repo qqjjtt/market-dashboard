@@ -135,6 +135,7 @@
   table.ops th { text-align: left; color: var(--muted); font-weight: 500; font-size: 13px; padding: 6px 10px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
   table.ops td { padding: 8px 10px; border-bottom: 1px solid var(--hair); vertical-align: top; }
   table.ops tr:last-child td { border-bottom: 0; }
+  .watch-line { font-size: 13px; color: var(--ink); background: var(--surface); border-left: 2px solid var(--warm); border-radius: 4px; padding: 6px 10px; margin-top: 10px; }
   table.ops td.r, table.ops th.r { text-align: right; }
   table.ops a, ul.news a.ttl { text-decoration-color: var(--hair); text-underline-offset: 3px; }
   .news-tabs { margin-bottom: 8px; }
@@ -568,6 +569,8 @@ function ovTeam() {
     tile("尾盘占比", noTail ? DASH : fmtNum(tail.today, 1), "%", noTail ? "" : "昨 " + fmtNum(tail.yday, 1) + "%")
   ], function (a) {
     if (!sparkBox(a, cum, C.up, "亿元", 0)) noTrend(a);
+    var sp = watchSpikes();
+    if (sp.length) a.appendChild(el("div", "watch-line", "观察池天量：" + sp.slice(0, 2).map(spikeText).join("；") + (sp.length > 2 ? " 等 " + sp.length + " 只" : "")));
   }, pool + " ETF 累计净申赎，近 " + cum.length + " 日");
 }
 function ovRetail() {
@@ -651,6 +654,44 @@ function renderRate(parent, r) {
     el("span", null, " · 隐含 − 有效 "), el("b", "tnum", isNum(r.diff_bp) ? fmtSigned(r.diff_bp, 1) + "bp" : DASH),
     el("span", null, " · "), el("b", cls, lab));
   parent.appendChild(line);
+}
+function watchSpikes() {
+  var W = DATA.watch || {};
+  return (Array.isArray(W.spikes) ? W.spikes : []).filter(Boolean);
+}
+function spikeText(s) {
+  var parts = [];
+  (Array.isArray(s.by) ? s.by : []).forEach(function (b) {
+    if (b === "成交额" && isNum(s.amount_ratio)) parts.push("成交额 " + fmtNum(s.amount_ratio, 1) + " 倍");
+    if (b === "净申赎" && isNum(s.net)) parts.push((s.net >= 0 ? "净申购 " : "净赎回 ") + fmtNum(Math.abs(s.net), 1) + " 亿");
+  });
+  return (s.name || s.code || DASH) + (parts.length ? "（" + parts.join("，") + "）" : "");
+}
+function renderWatch(parent) {
+  var W = DATA.watch || {}, spikes = watchSpikes(), td = (DATA.meta || {}).trade_date;
+  var card = el("div", "card");
+  if (!spikes.length) {
+    card.appendChild(el("div", "empty-note", W.date ? "今日观察池无天量" : "观察池暂无数据"));
+    parent.appendChild(card); return;
+  }
+  var wrap = el("div", "tbl-wrap"), t = el("table", "ops"), thead = el("thead"), tr = el("tr");
+  [["ETF", ""], ["触发", ""], ["成交额（亿元）", "r"], ["较 20 日均", "r"], ["净申赎（亿元）", "r"], ["较 60 日均", "r"]].forEach(function (h) { tr.appendChild(el("th", h[1], h[0])); });
+  thead.appendChild(tr); t.appendChild(thead);
+  var tb = el("tbody");
+  spikes.forEach(function (s) {
+    var row = el("tr"), nm = el("td");
+    add(nm, el("div", null, s.name || DASH), el("div", "muted", s.code || ""));
+    row.appendChild(nm);
+    row.appendChild(el("td", null, (Array.isArray(s.by) ? s.by : []).join("、") || DASH));
+    row.appendChild(el("td", "r tnum", isNum(s.amount) ? fmtNum(s.amount, 1) : DASH));
+    row.appendChild(el("td", "r tnum", isNum(s.amount_ratio) ? fmtNum(s.amount_ratio, 1) + " 倍" : DASH));
+    var nt = el("td", "r tnum " + dirClass(s.net), isNum(s.net) ? fmtSigned(s.net, 1) : DASH);
+    if (isNum(s.net) && s.net_date && td && s.net_date !== td) nt.appendChild(el("div", "muted", "截至 " + fmtDay(s.net_date)));
+    row.appendChild(nt);
+    row.appendChild(el("td", "r tnum", isNum(s.flow_ratio) ? fmtNum(s.flow_ratio, 1) + " 倍" : DASH));
+    tb.appendChild(row);
+  });
+  t.appendChild(tb); wrap.appendChild(t); card.appendChild(wrap); parent.appendChild(card);
 }
 function renderPolicyOps(parent, rows) {
   var card = el("div", "card");
@@ -1030,6 +1071,11 @@ function renderTeam(p) {
     p.appendChild(g);
   });
   guard(p, function () { secTitle(p, "ETF 净申赎", pool + ((DATA.meta || {}).team_pool ? " · 159919 为深市、份额晚一天披露，最新一日暂按 5 只合计" : " · 三种视图共用同一日期轴")); teamChart(p, E, pool); });
+  guard(p, function () {
+    var W = DATA.watch || {};
+    secTitle(p, "观察池天量", (isNum(W.count) ? W.count + " 只" : "观察池") + " · 成交额 ≥ 20 日均 3 倍，或净申赎 ≥ 60 日均 5 倍且 ≥ 10 亿 · 不计入上面的判断");
+    renderWatch(p);
+  });
   guard(p, function () {
     secTitle(p, "本轮与成交指纹");
     var two = el("div", "two-col");

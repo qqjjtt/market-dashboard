@@ -547,7 +547,8 @@ def _default_etf():
             "monthly": [],
             "fingerprint": {"date": None, "groups": [], "tail": {"today": None, "yday": None, "source": "无分钟数据"},
                             "conclusion": {"big": None, "small": "", "text": ""}, "footnote": ""},
-            "team_last3": [], "team_asof": None, "round_total": None, "tail_source": "无分钟数据"}
+            "team_last3": [], "team_asof": None, "round_total": None, "tail_source": "无分钟数据",
+            "watch": {"count": len(config.WATCH_ETF), "date": None, "spikes": []}}
 
 
 def _etf(c: Ctx, round_start: str | None) -> dict:
@@ -564,7 +565,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     if not all_days:
         all_days = list(c.days)
 
-    codes = list(dict.fromkeys(config.HUIJIN6 + config.BROAD10 + config.INDUSTRY6))
+    codes = list(dict.fromkeys(config.HUIJIN6 + config.BROAD10 + config.INDUSTRY6 + config.WATCH_ETF))
     shares, closes = {}, {}
     for code in codes:
         sh = _fetch(f"ETF {code} 份额", src.etf_share, code, fetch_start, D, note="，该只份额已跳过")
@@ -614,6 +615,15 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
                      "share": [_num(v) for v in share_w.loc[share_w.index >= flow_start, code]]}
                     for code in config.HUIJIN6 if code in share_w.columns],
     }
+
+    # --- 观察池天量（失败只影响这一块）
+    def _watch():
+        amount_w = _wide(closes, "amount", all_days)
+        cols = [x for x in config.WATCH_ETF if x in amount_w.columns]
+        ncols = [x for x in cols if x in net.columns]
+        spikes = me.volume_spikes(amount_w[cols], net[ncols], D, names, **config.SPIKE) if cols else []
+        return {"count": len(config.WATCH_ETF), "date": D, "spikes": spikes}
+    out["watch"] = _safe("观察池天量", _watch, lambda: _default_etf()["watch"])
 
     # --- 成交指纹（尾盘占比与指纹各自兜底：任何一块失败都不能拖垮上面已算好的国家队净申赎）
     prev = [d for d in all_days if d < D]
@@ -728,7 +738,8 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
     conclusions = _safe("结论条", lambda: build_conclusions(
         liquidity["vote"], liquidity["rate_expect"], fed_card, sector["day"], etf["team_last3"], etf["team_asof"],
         etf["round_total"], sent["kpis"], sent["market"], sent["market_yday"],
-        trade_date=D, sector_date=sector.get("date"), conc_date=sent["concentration"].get("date")), list)
+        trade_date=D, sector_date=sector.get("date"), conc_date=sent["concentration"].get("date"),
+        watch_spikes=etf["watch"]["spikes"]), list)
 
     return {
         "meta": {"trade_date": D, "generated_at": now.strftime("%Y-%m-%d %H:%M"), "demo": bool(demo),
@@ -745,6 +756,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
         "round": etf["round"],
         "monthly": etf["monthly"],
         "fingerprint": etf["fingerprint"],
+        "watch": etf["watch"],
         "temperature": sent["temperature"],
         "concentration": sent["concentration"],
     }

@@ -181,3 +181,50 @@ def ratio_footnote(groups: list[dict]) -> str:
         return f"{_ZH_NUM.get(n, n)}组全部越过了 100%（{pcts}）"
     rest = "其余未超过 100%" if any(g["ratio"] == 100 for g in valid) else "其余全部低于 100%"
     return f"只有{names}越过了 100%（{pcts}），{rest}"
+
+
+def volume_spikes(amount: pd.DataFrame, net: pd.DataFrame, today: str, names: dict,
+                  amount_mult: float = 3.0, amount_window: int = 20,
+                  flow_mult: float = 5.0, flow_window: int = 60, flow_min: float = 10.0) -> list[dict]:
+    """观察池「天量」：成交额或净申赎任一突增的 ETF（按突增倍数从大到小）。
+
+    - 成交额（亿元）：今日 ≥ 此前 amount_window 个交易日均值 × amount_mult（至少要有一半天数的历史）。
+    - 净申赎（亿元，正 = 申购）：最新已披露日（今日，或深市晚一天披露时的前一交易日）的 |净申赎|
+      ≥ 此前 flow_window 个已披露日 |净申赎| 均值 × flow_mult，且 ≥ flow_min 亿；申购、赎回都算。
+    today 不在成交额日期里 → 返回空表。
+    """
+    if amount is None or today not in amount.index:
+        return []
+    days = list(amount.index)
+    pos = days.index(today)
+    recent = set(days[max(0, pos - 1):pos + 1])
+    out = []
+    for code in amount.columns:
+        a_hist = amount[code].iloc[:pos].dropna().tail(amount_window)
+        a_today = amount.at[today, code]
+        amt = float(a_today) if pd.notna(a_today) else None
+        a_ratio = None
+        if amt is not None and len(a_hist) >= amount_window // 2 and a_hist.mean() > 0:
+            a_ratio = amt / float(a_hist.mean())
+
+        n_val = n_date = f_ratio = None
+        if net is not None and code in net.columns:
+            s = net[code].dropna()
+            s = s[s.index <= today]
+            if len(s) and s.index[-1] in recent:
+                n_date, n_val = str(s.index[-1]), float(s.iloc[-1])
+                base = s.iloc[:-1].tail(flow_window).abs()
+                if len(base) >= 20 and base.mean() > 0:
+                    f_ratio = abs(n_val) / float(base.mean())
+
+        by = []
+        if a_ratio is not None and a_ratio >= amount_mult:
+            by.append("成交额")
+        if f_ratio is not None and f_ratio >= flow_mult and abs(n_val) >= flow_min:
+            by.append("净申赎")
+        if by:
+            out.append({"code": code, "name": names.get(code, code), "by": by,
+                        "amount": amt, "amount_ratio": a_ratio,
+                        "net": n_val, "net_date": n_date, "flow_ratio": f_ratio})
+    out.sort(key=lambda x: max(x["amount_ratio"] or 0, x["flow_ratio"] or 0), reverse=True)
+    return out

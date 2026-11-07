@@ -91,11 +91,23 @@ def _sector_card(sector_day: dict, sector_date: str | None = None, trade_date: s
     return _card("sector", "板块流向", text, sub, "blue")
 
 
-def _team_card(team_last3: list[float], team_asof: str | None, round_total: float | None) -> dict:
+def _spike_note(spikes) -> str:
+    """观察池天量提示：最多点名 2 只，多于 2 只加「等 N 只」；无 → 空串。"""
+    names = [str(s.get("name") or s.get("code") or "") for s in (spikes or [])]
+    names = [n for n in names if n]
+    if not names:
+        return ""
+    more = f" 等 {len(names)} 只" if len(names) > 2 else ""
+    return " · 观察池天量：" + "、".join(names[:2]) + more
+
+
+def _team_card(team_last3: list[float], team_asof: str | None, round_total: float | None,
+               watch_spikes=None) -> dict:
     vals = [float(v) for v in team_last3 if _ok(v)]
     label, tone = national_team_verdict(vals)
+    note = _spike_note(watch_spikes)
     if not vals:
-        return _card("team", "国家队", "暂无已披露数据", f"{config.TEAM_NAME} ETF 净申赎", "gray")
+        return _card("team", "国家队", "暂无已披露数据", f"{config.TEAM_NAME} ETF 净申赎" + note, "gray")
     total = sum(vals)
     n = len(vals)
     if label == "仍在":
@@ -107,7 +119,7 @@ def _team_card(team_last3: list[float], team_asof: str | None, round_total: floa
     sub = f"截至 {_md(team_asof)}"
     if _ok(round_total):
         sub += f" · 本轮累计 {signed(round_total)} 亿"
-    return _card("team", "国家队", text, sub, tone)
+    return _card("team", "国家队", text, sub + note, tone)
 
 
 def _band(t: float) -> str:
@@ -146,7 +158,7 @@ def build_conclusions(vote: dict, rate_expect: dict, fed_card: dict, sector_day:
                       team_last3: list[float], team_asof: str | None, round_total: float | None,
                       temp_kpis: dict, market_conc: float | None, market_conc_yday: float | None,
                       trade_date: str | None = None, sector_date: str | None = None,
-                      conc_date: str | None = None) -> list[dict]:
+                      conc_date: str | None = None, watch_spikes: list[dict] | None = None) -> list[dict]:
     """四张结论卡（流动性 / 板块流向 / 国家队 / 散户情绪）。
 
     trade_date = 交易日 D；sector_date / conc_date 为板块流向 / 韭菜浓度各自的数据日期，
@@ -157,6 +169,6 @@ def build_conclusions(vote: dict, rate_expect: dict, fed_card: dict, sector_day:
     return [
         _liquidity_card(vote, rate_expect, fed_card),
         _sector_card(sector_day, sector_date, trade_date),
-        _team_card(team_last3, team_asof, round_total),
+        _team_card(team_last3, team_asof, round_total, watch_spikes),
         _retail_card(temp_kpis, market_conc, market_conc_yday, conc_date, trade_date),
     ]

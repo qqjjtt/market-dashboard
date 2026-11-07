@@ -91,3 +91,17 @@ def test_staleness_labels_only_when_panel_date_differs():
     assert "截至" not in none["sector"]["sub"] and "浓度截至" not in none["retail"]["text"]
     # 旧调用方式（不传日期）保持原样
     assert by_key(conclusions())["retail"]["text"] == "体温 71.2（温暖）· 浓度 65.3%（+1.2pp）"
+
+
+def test_team_card_watch_spikes():
+    spikes = [{"name": "科创50ETF", "by": ["成交额"]}, {"name": "创业板ETF", "by": ["净申赎"]},
+              {"name": "可转债ETF", "by": ["成交额", "净申赎"]}]
+    c = by_key(conclusions(watch_spikes=spikes))["team"]
+    assert c["text"].startswith("仍在（近 3 日 +45.0 亿）")
+    assert c["sub"].endswith(" · 观察池天量：科创50ETF、创业板ETF 等 3 只")
+    c = by_key(conclusions(watch_spikes=spikes[:1]))["team"]
+    assert c["sub"].endswith(" · 观察池天量：科创50ETF")
+    c = by_key(conclusions(watch_spikes=[]))["team"]
+    assert "观察池" not in c["sub"]
+    c = by_key(conclusions(team_last3=[], watch_spikes=spikes[:1]))["team"]
+    assert c["tone"] == "gray" and "观察池天量：科创50ETF" in c["sub"]

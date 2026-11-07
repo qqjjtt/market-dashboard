@@ -177,3 +177,71 @@ def test_ratio_footnote_multi_none_and_all_over():
     assert ratio_footnote(gs) == "只有甲、乙越过了 100%（+20%、+10%），其余全部低于 100%"
     assert "全部" in ratio_footnote([_g("甲", 120), _g("乙", 110)]) and "越过" in ratio_footnote([_g("甲", 120), _g("乙", 110)])
     assert ratio_footnote([_g("甲", None)]) == ""
+
+
+# ---------------------------------------------------------------- 观察池天量
+
+from metrics_etf import volume_spikes
+
+
+def _days(n):
+    return [f"2026{m:02d}{d:02d}" for m in range(7, 12) for d in range(1, 29)][:n]
+
+
+def _spike_frames(n=70):
+    days = _days(n)
+    amount = pd.DataFrame({"A": [10.0] * n, "B": [10.0] * n}, index=days)
+    net = pd.DataFrame({"A": [1.0, -1.0] * (n // 2), "B": [1.0, -1.0] * (n // 2)}, index=days)
+    return days, amount, net
+
+
+def test_volume_spikes_quiet_day_is_empty():
+    days, amount, net = _spike_frames()
+    assert volume_spikes(amount, net, days[-1], {}) == []
+
+
+def test_volume_spike_by_amount():
+    days, amount, net = _spike_frames()
+    amount.loc[days[-1], "A"] = 35.0  # 3.5 倍
+    out = volume_spikes(amount, net, days[-1], {"A": "甲ETF"})
+    assert len(out) == 1
+    s = out[0]
+    assert s["code"] == "A" and s["name"] == "甲ETF" and s["by"] == ["成交额"]
+    assert s["amount"] == pytest.approx(35.0) and s["amount_ratio"] == pytest.approx(3.5)
+
+
+def test_volume_spike_by_net_flow_needs_both_multiple_and_floor():
+    days, amount, net = _spike_frames()
+    net.loc[days[-1], "A"] = 9.0  # 9 倍但不足 10 亿 → 不算
+    net.loc[days[-1], "B"] = -12.0  # 12 倍且 ≥10 亿，净赎回也算
+    out = volume_spikes(amount, net, days[-1], {})
+    assert [s["code"] for s in out] == ["B"]
+    assert out[0]["by"] == ["净申赎"] and out[0]["net"] == pytest.approx(-12.0)
+    assert out[0]["net_date"] == days[-1] and out[0]["flow_ratio"] == pytest.approx(12.0)
+
+
+def test_volume_spike_uses_previous_day_net_when_today_not_disclosed():
+    days, amount, net = _spike_frames()
+    net.loc[days[-2], "B"] = 30.0
+    net.loc[days[-1], "B"] = np.nan  # 深市当日未披露
+    out = volume_spikes(amount, net, days[-1], {})
+    assert out[0]["code"] == "B" and out[0]["net_date"] == days[-2]
+
+
+def test_volume_spike_ignores_stale_net_and_thin_history():
+    days, amount, net = _spike_frames()
+    net.loc[days[-3], "A"] = 30.0  # 两天前的大额，不再提示
+    net.loc[days[-2]:, "A"] = np.nan
+    assert volume_spikes(amount, net, days[-1], {}) == []
+    short_days, short_amt, short_net = _spike_frames(8)
+    short_amt.loc[short_days[-1], "A"] = 100.0  # 历史不足 → 不判
+    assert volume_spikes(short_amt, short_net, short_days[-1], {}) == []
+
+
+def test_volume_spikes_sorted_by_strength_and_missing_today():
+    days, amount, net = _spike_frames()
+    amount.loc[days[-1], "A"] = 40.0
+    amount.loc[days[-1], "B"] = 60.0
+    out = volume_spikes(amount, net, days[-1], {})
+    assert [s["code"] for s in out] == ["B", "A"]
+    assert volume_spikes(amount, net, "20991231", {}) == []
