@@ -80,3 +80,14 @@ def test_fred_from_env(monkeypatch):
     assert FredSource.from_env().api_key == "envkey"
     monkeypatch.delenv("FRED_API_KEY")
     assert FredSource.from_env().api_key is None
+
+
+def test_fred_failure_warning_names_the_path(caplog):
+    def boom(url):
+        raise TimeoutError("timed out")
+    with caplog.at_level(logging.WARNING):
+        FredSource(boom).series("WALCL", "2026-09-01")
+        FredSource(boom, api_key="k123").series("WALCL", "2026-09-01")
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("公开 CSV" in m for m in msgs) and any("官方 API" in m for m in msgs)
+    assert all("k123" not in m for m in msgs)
