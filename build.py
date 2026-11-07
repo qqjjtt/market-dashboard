@@ -235,20 +235,43 @@ def _indices(c: Ctx) -> list[dict]:
     return out
 
 
-def _commodities(c: Ctx) -> list[dict]:
-    """当日金价、油价：最新收盘与较前一根的涨跌幅（%）；取不到 → 各值 None。"""
-    start = c.days[max(0, len(c.days) - 10)] if c.days else c.D
+ASSET_SPECS = [  # (key, 名称, 单位, 变化口径, 备注)
+    ("gold", "黄金", "元/克", "pct", ""),
+    ("oil", "原油", "元/桶", "pct", "上海原油主力"),
+    ("bond", "10年国债期货", "元", "pct", "价格涨=收益率降"),
+    ("us10y", "美债10年", "%", "bp", ""),
+    ("usd", "美元指数", "点", "pct", "FXCM，非 DXY"),
+    ("cnh", "离岸人民币", "元/美元", "pct", "数值涨=人民币贬"),
+]
+
+
+def _assets(c: Ctx) -> list[dict]:
+    """大类资产条：六项最新值与近 1 / 4 / 13 周（往前 5 / 20 / 65 个观测）变化；
+    某项取不到 → 该项 value/date/w* 全 None（六项始终都在）。"""
+    src, D = c.src, c.D
+    start = _shift(D, -130)
+
+    def _px(label, fn, *args, col="close", idx="trade_date"):
+        s = _ser(_fetch(label, fn, *args, start, D), idx, col)
+        return s[s.index <= D] if len(s) else s
+
+    fetchers = {
+        "gold": lambda: _px("黄金", src.gold_spot),
+        "oil": lambda: _px("原油", src.crude_fut),
+        "bond": lambda: _px("10年国债期货", src.bond_fut_10y),
+        "us10y": lambda: _px("美债10年", src.us_yields, col="y10", idx="date"),
+        "usd": lambda: _px("美元指数", src.fx, "USDOLLAR"),
+        "cnh": lambda: _px("离岸人民币", src.fx, "USDCNH.FXCM"),
+    }
     out = []
-    for key, name, unit, fn in (("gold", "黄金", "元/克", c.src.gold_spot), ("oil", "原油", "元/桶", c.src.crude_fut)):
-        s = _ser(_fetch(f"{name}（{unit}）", fn, start, c.D), "trade_date", "close")
-        if len(s):
-            s = s[s.index <= c.D]
-        close = pct = date = None
-        if len(s):
-            close, date = float(s.iloc[-1]), str(s.index[-1])
-            if len(s) >= 2 and s.iloc[-2]:
-                pct = float((s.iloc[-1] / s.iloc[-2] - 1) * 100)
-        out.append({"key": key, "name": name, "unit": unit, "close": close, "pct_chg": pct, "date": date})
+    for key, name, unit, kind, note in ASSET_SPECS:
+        try:
+            s = fetchers[key]()
+        except Exception as e:  # noqa: BLE001
+            log.warning("大类资产 %s 计算失败（%s: %s）", name, type(e).__name__, _short(e))
+            s = _empty_series()
+        out.append({"key": key, "name": name, "unit": unit, **ml.asset_changes(s, kind),
+                    "chg_kind": kind, "note": note})
     return out
 
 
@@ -304,7 +327,7 @@ def _liquidity(c: Ctx) -> dict:
     if len(mflow) and mflow.index[-1] != D:
         log.warning("大盘主力净流入 数据截至 %s", _md(mflow.index[-1]))
     sh_df = _fetch("Shibor", src.shibor, start, D)
-    on, w1 = _ser(sh_df, "date", "on"), _ser(sh_df, "date", "w1")
+    on, w1, y1 = _ser(sh_df, "date", "on"), _ser(sh_df, "date", "w1"), _ser(sh_df, "date", "y1")
 
     turnover, margin_chg, flow_5d, shibor_bp = _vote_inputs(totals, D, margin, mflow, w1)
 
@@ -330,13 +353,28 @@ def _liquidity(c: Ctx) -> dict:
         _mk_card("inst", "龙虎榜机构净买入", inst, "亿元"),
     ]
 
-    m2_df = _fetch("M2", src.m2, _month_start(D, 12)[:6], D[:6])
+    m2_df = _fetch("M1/M2", src.m2, _month_start(D, 12)[:6], D[:6])
+    sf_df = _fetch("社融存量", src.social_financing, _month_start(D, 26)[:6], D[:6])
+    dr007 = _ser(_fetch("DR007", src.repo, "DR007.IB", start, D), "trade_date", "rate")
+    dr001 = _ser(_fetch("DR001", src.repo, "DR001.IB", start, D), "trade_date", "rate")
+    r007 = _ser(_fetch("R007", src.repo, "R007.IB", start, D), "trade_date", "rate")
     bond = _ser(_fetch("10年国债期货", src.bond_fut_10y, start, D), "trade_date", "close")
     brent = _ser(_fetch("布伦特原油", src.fx, "UKOIL", start, D), "trade_date", "close")
+    pol_note = ""
+    if config.POLICY_RATES:
+        _, pr, pname = config.POLICY_RATES[-1]
+        pol_note = f"政策利率 {pname} {pr:g}%"
     macro = [
         _mk_card("shibor_on", "Shibor隔夜", on, "%"),
         _mk_card("shibor_1w", "Shibor 1W", w1, "%"),
+        _mk_card("dr007", "DR007", dr007, "%"),
+        _mk_card("dr001_spread", "DR001−政策利率", ml.policy_spread_bp(dr001, config.POLICY_RATES), "bp",
+                 note=pol_note),
+        _mk_card("r007_dr007", "R007−DR007", ml.spread_bp(r007, dr007), "bp"),
+        _mk_card("shibor_1y", "Shibor 1Y", y1, "%", note="同业存单参考"),
+        _mk_card("m1", "M1同比", _ser(m2_df, "month", "m1_yoy"), "%"),
         _mk_card("m2", "M2同比", _ser(m2_df, "month", "m2_yoy"), "%"),
+        _mk_card("sf", "社融存量同比", ml.yoy_pct(_ser(sf_df, "month", "stk_endval")), "%"),
         _mk_card("bond_fut", "10年国债期货", bond, "元", note="价格涨=收益率降"),
         _mk_card("brent", "布伦特原油", brent, "美元/桶", change="pct"),
     ]
@@ -374,8 +412,14 @@ def _external(c: Ctx, start: str):
     cards = [
         _mk_card("fed_net", "美联储净流动性", fed, "十亿美元", change_lag=4),
         _mk_card("reserves", "银行准备金", raw["WRESBAL"] / 1000.0, "十亿美元"),
+        _mk_card("tga", "TGA 财政部账户", raw["WTREGEN"] / 1000.0, "十亿美元", note="已计入净流动性，不另计分"),
+        _mk_card("rrp", "隔夜逆回购 ON RRP", raw["RRPONTSYD"], "十亿美元", note="已计入净流动性，不另计分"),
+        _mk_card("sofr_iorb", "SOFR−IORB", ml.spread_bp(raw["SOFR"], raw["IORB"]), "bp"),
+        _mk_card("nfci", "NFCI 金融条件", raw["NFCI"], "点", note="负值=偏宽松"),
+        _mk_card("hy_oas", "美国高收益债利差", raw["BAMLH0A0HYM2"], "%"),
         _mk_card("us2y", "美债2年", _ser(yields, "date", "y2"), "%"),
         _mk_card("us10y", "美债10年", _ser(yields, "date", "y10"), "%"),
+        _mk_card("tips10", "美债10年实际利率", raw["DFII10"], "%"),
         _mk_card("usd", "美元指数", usd, "点", change="pct", note="FXCM 美元指数，非 DXY"),
     ]
     for code, name in config.US_INDICES:
@@ -731,7 +775,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
     etf = _safe("ETF", lambda: _etf(c, round_start), _default_etf)
     news = _safe("新闻", lambda: _news(c, date), lambda: {"domestic": [], "external": [], "status": "failed", "since": None})
     indices = _safe("指数", lambda: _indices(c), list)
-    commodities = _safe("金价油价", lambda: _commodities(c), list)
+    assets = _safe("大类资产", lambda: _assets(c), list)
     policy = _safe("政策工具表", lambda: ml.load_policy_ops(str(POLICY_CSV)), list)
 
     fed_card = next((x for x in liquidity["external"] if x["key"] == "fed_net"), {})
@@ -747,7 +791,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
                  "sector_mode": sent["mode"], "tail_source": etf["tail_source"], "warnings": []},
         "conclusions": conclusions,
         "indices": indices,
-        "commodities": commodities,
+        "assets": assets,
         "liquidity": liquidity,
         "policy_ops": policy,
         "news": news,

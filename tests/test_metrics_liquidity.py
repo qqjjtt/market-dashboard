@@ -488,3 +488,68 @@ def test_config_markers_do_not_catch_dated_pboc_ops():
                     us_markers=config.NEWS_US_MARKERS, foreign_markers=config.NEWS_FOREIGN_MARKERS)
     assert [n["title"] for n in d["domestic"]] == ["11月6日央行开展2260亿元隔夜逆回购操作"]
     assert d["external"] == []
+
+
+# ---------- 大类资产变化 ----------
+
+def test_asset_changes_pct():
+    from metrics_liquidity import asset_changes
+    idx = [f"2026{m:02d}{d:02d}" for m in (8, 9, 10) for d in range(1, 29)]
+    s = pd.Series([100.0 + i for i in range(len(idx))], index=idx)
+    r = asset_changes(s, "pct")
+    last = s.iloc[-1]
+    assert r["value"] == last and r["date"] == idx[-1]
+    assert r["w1"] == pytest.approx((last / s.iloc[-6] - 1) * 100)
+    assert r["w4"] == pytest.approx((last / s.iloc[-21] - 1) * 100)
+    assert r["w13"] == pytest.approx((last / s.iloc[-66] - 1) * 100)
+
+
+def test_asset_changes_bp():
+    from metrics_liquidity import asset_changes
+    idx = [f"2026{m:02d}{d:02d}" for m in (8, 9, 10) for d in range(1, 29)]
+    s = pd.Series([4.0 + 0.01 * i for i in range(len(idx))], index=idx)
+    r = asset_changes(s, "bp")
+    assert r["w1"] == pytest.approx((s.iloc[-1] - s.iloc[-6]) * 100)
+    assert r["w13"] == pytest.approx((s.iloc[-1] - s.iloc[-66]) * 100)
+
+
+def test_asset_changes_insufficient_and_zero_ref():
+    from metrics_liquidity import asset_changes
+    s = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], index=[f"2026110{i}" for i in range(1, 8)])
+    r = asset_changes(s, "pct")
+    assert r["value"] == 7.0 and r["w1"] == pytest.approx((7 / 2 - 1) * 100)
+    assert r["w4"] is None and r["w13"] is None
+    z = pd.Series([0.0, 1, 1, 1, 1, 2], index=[f"2026110{i}" for i in range(1, 7)])
+    assert asset_changes(z, "pct")["w1"] is None  # ref=0
+    assert asset_changes(z, "bp")["w1"] == pytest.approx(200.0)  # bp 不受 ref=0 影响
+    e = asset_changes(pd.Series(dtype=float), "pct")
+    assert e == {"value": None, "date": None, "w1": None, "w4": None, "w13": None}
+
+
+def test_spread_bp_inner_align():
+    from metrics_liquidity import spread_bp
+    a = pd.Series({"20261104": 1.40, "20261105": 1.41, "20261106": 1.39})
+    b = pd.Series({"20261105": 1.35, "20261106": 1.345, "20261107": 1.3})
+    r = spread_bp(a, b)
+    assert list(r.index) == ["20261105", "20261106"]
+    assert r.iloc[0] == pytest.approx(6.0) and r.iloc[1] == pytest.approx(4.5)
+    assert len(spread_bp(a, pd.Series(dtype=float))) == 0
+
+
+def test_policy_spread_bp_effective_dates():
+    from metrics_liquidity import policy_spread_bp
+    pol = [("20261102", 1.25, "隔夜逆回购"), ("20270101", 1.10, "新利率")]
+    rate = pd.Series({"20261030": 1.3, "20261106": 1.2886, "20270105": 1.2})
+    r = policy_spread_bp(rate, pol)
+    assert np.isnan(r["20261030"])  # 早于第一行
+    assert r["20261106"] == pytest.approx(3.86)
+    assert r["20270105"] == pytest.approx(10.0)  # 取生效日 ≤ 该日的最后一行
+    assert len(policy_spread_bp(pd.Series(dtype=float), pol)) == 0
+
+
+def test_yoy_pct_needs_12_months_back():
+    from metrics_liquidity import yoy_pct
+    s = pd.Series({"202510": 100.0, "202511": 101.0, "202610": 110.0, "202611": 0.0, "202512": 0.0, "202612": 5.0})
+    r = yoy_pct(s)
+    assert list(r.index) == ["202610", "202611"]
+    assert r["202610"] == pytest.approx(10.0) and r["202611"] == pytest.approx(-100.0)

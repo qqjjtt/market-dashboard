@@ -57,6 +57,21 @@
   .chart-msg { color: var(--muted); text-align: center; padding: 40px 0; }
   .note { font-size: 13px; color: var(--muted); }
 
+  /* asset strip */
+  .asset-card { margin-top: 16px; padding: 12px 8px; }
+  .asset-head { color: var(--muted); font-size: 13px; padding: 0 10px 8px; }
+  .asset-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 0; }
+  .asset { padding: 4px 12px; border-right: 1px solid var(--hair); min-width: 0; }
+  .asset:last-child { border-right: 0; }
+  .asset .n { color: var(--muted); font-size: 12px; }
+  .asset .v { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .asset .c { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .asset .c i { font-style: normal; color: var(--muted); font-weight: 400; margin-right: 6px; }
+  .asset .d { display: inline-block; margin-top: 2px; padding: 0 7px; border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 18px; }
+  .asset .nt { color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  @media (max-width: 900px) { .asset-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .asset:nth-child(3n) { border-right: 0; } }
+  @media (max-width: 480px) { .asset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .asset:nth-child(3n) { border-right: 1px solid var(--hair); } .asset:nth-child(2n) { border-right: 0; } }
+
   /* section headings */
   .sec-title { font-size: 16px; font-weight: 650; margin: 28px 0 10px; display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
   .sec-title small { color: var(--muted); font-weight: 400; font-size: 13px; }
@@ -317,7 +332,7 @@ function fmtSigned(v, d) {
   return (v > 0 ? "+" : v < 0 ? "−" : "") + s;
 }
 function autoDec(v) { var a = Math.abs(v); return a >= 1000 ? 0 : a >= 100 ? 1 : 2; }
-var UNIT_DEC = { "%": 2, "元": 3, "家": 0, "点": 2, "十亿美元": 1, "美元/桶": 2 };
+var UNIT_DEC = { "%": 2, "元": 3, "家": 0, "点": 2, "十亿美元": 1, "美元/桶": 2, "bp": 1 };
 function decFor(unit, v) { return UNIT_DEC.hasOwnProperty(unit) ? UNIT_DEC[unit] : autoDec(v); }
 function dirClass(v) { return !isNum(v) || v === 0 ? "flat" : v > 0 ? "up" : "down"; }
 function arrow(v) { return !isNum(v) || v === 0 ? "" : v > 0 ? "▲ " : "▼ "; }
@@ -454,7 +469,7 @@ function heroBand(p, key, extra) {
 
 /* ================= indices ================= */
 function renderIndices(parent) {
-  var list = (Array.isArray(DATA.indices) ? DATA.indices : []).concat(Array.isArray(DATA.commodities) ? DATA.commodities : []).filter(Boolean);
+  var list = (Array.isArray(DATA.indices) ? DATA.indices : []).filter(Boolean);
   if (!list.length) return;
   var strip = el("div", "card idx-strip");
   var td = (DATA.meta || {}).trade_date;
@@ -467,6 +482,32 @@ function renderIndices(parent) {
     strip.appendChild(cell);
   });
   parent.appendChild(strip);
+}
+
+/* ================= assets (大类资产) ================= */
+var ASSET_DEC = { gold: 2, oil: 2, bond: 2, usd: 2, cnh: 4, us10y: 3 };
+function renderAssets(parent) {
+  var list = (Array.isArray(DATA.assets) ? DATA.assets : []).filter(Boolean);
+  if (!list.length) return;                                  /* 旧存档没有 assets */
+  var card = el("div", "card asset-card");
+  card.appendChild(el("div", "asset-head", "大类资产 · 近 1 周 / 4 周 / 13 周"));
+  var grid = el("div", "asset-grid"), td = (DATA.meta || {}).trade_date;
+  list.forEach(function (x) {
+    var cell = el("div", "asset"), bp = x.chg_kind === "bp";
+    cell.appendChild(el("div", "n", (x.name || DASH) + (x.unit ? "（" + x.unit + "）" : "")));
+    cell.appendChild(el("div", "v", fmtNum(x.value, ASSET_DEC.hasOwnProperty(x.key) ? ASSET_DEC[x.key] : 2)));
+    [["1周", x.w1], ["4周", x.w4], ["13周", x.w13]].forEach(function (r) {
+      var row = el("div", "c " + dirClass(r[1]));
+      row.appendChild(el("i", null, r[0]));
+      row.appendChild(document.createTextNode(isNum(r[1]) ? fmtSigned(r[1], bp ? 0 : 2) + (bp ? "bp" : "%") : DASH));
+      cell.appendChild(row);
+    });
+    if (typeof x.date === "string" && x.date && td && x.date !== td) cell.appendChild(el("span", "d", "截至 " + fmtDay(x.date)));
+    if (x.note) cell.appendChild(el("div", "nt", x.note));
+    grid.appendChild(cell);
+  });
+  card.appendChild(grid);
+  parent.appendChild(card);
 }
 
 /* ================= overview ================= */
@@ -508,7 +549,7 @@ function changeOf(card) {
   var pp = card.change_unit === "%" && card.unit === "%";
   var d = pp ? 2 : decFor(card.change_unit, card.change);
   var u = pp ? "pp" : (card.change_unit || "");
-  return { cls: dirClass(card.change), txt: arrow(card.change) + fmtSigned(card.change, d) + (u === "%" || u === "pp" ? u : " " + u) };
+  return { cls: dirClass(card.change), txt: arrow(card.change) + fmtSigned(card.change, d) + (u === "%" || u === "pp" || u === "bp" ? u : " " + u) };
 }
 function cardTile(card) {
   var has = isNum(card.value), ch = changeOf(card);
@@ -588,6 +629,7 @@ function ovRetail() {
 }
 function renderHome(p) {
   guard(p, renderIndices);
+  guard(p, renderAssets);
   var g = el("div", "ov-grid");
   [ovLiquidity, ovSector, ovTeam, ovRetail].forEach(function (fn) { guard(g, function (box) { box.appendChild(fn()); }); });
   p.appendChild(g);
@@ -761,6 +803,7 @@ function renderLiquidity(p) {
   var L = DATA.liquidity || {};
   guard(p, function () { heroBand(p, "liquidity"); });
   guard(p, renderIndices);
+  guard(p, renderAssets);
   guard(p, function () { secTitle(p, "国内流动性投票", "四个信号各投松 / 平 / 紧"); renderVote(p, L.vote); });
   guard(p, function () { secTitle(p, "国内 · 场内资金"); p.appendChild(cardGrid(L.domestic)); });
   guard(p, function () { secTitle(p, "国内 · 宏观 / 价格"); p.appendChild(cardGrid(L.macro)); });

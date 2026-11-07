@@ -126,13 +126,20 @@ def test_macro_and_cross_market():
     d = DemoSource()
     days = d.trade_days("20261106", 30)
     sh = d.shibor(days[0], days[-1])
-    assert list(sh.columns) == ["date", "on", "w1"] and len(sh) == len(days)
+    assert list(sh.columns) == ["date", "on", "w1", "y1"] and len(sh) == len(days)
     m2 = d.m2("202501", "202610")
-    assert list(m2.columns) == ["month", "m2_yoy"] and m2["month"].is_monotonic_increasing
+    assert list(m2.columns) == ["month", "m1_yoy", "m2_yoy"] and m2["month"].is_monotonic_increasing
     assert m2["month"].iloc[-1] == "202610"
+    for code, base in (("DR001.IB", 1.30), ("DR007.IB", 1.35), ("R007.IB", 1.39)):
+        rp = d.repo(code, days[0], days[-1])
+        assert list(rp.columns) == ["trade_date", "rate"] and len(rp) == len(days)
+        assert abs(rp["rate"].mean() - base) < 0.5
+    assert d.repo("XXX", days[0], days[-1]).empty
+    sf = d.social_financing("202409", "202610")
+    assert list(sf.columns) == ["month", "stk_endval"] and len(sf) == 26 and sf["stk_endval"].iloc[-1] > sf["stk_endval"].iloc[0]
     bf = d.bond_fut_10y(days[0], days[-1])
     assert list(bf.columns) == ["trade_date", "close"] and len(bf) == len(days)
-    for code in ("UKOIL", "USDOLLAR", "FED30D"):
+    for code in ("UKOIL", "USDOLLAR", "FED30D", "USDCNH.FXCM"):
         fx = d.fx(code, days[0], days[-1])
         assert list(fx.columns) == ["trade_date", "close"] and len(fx) == len(days)
     gi = d.global_index(days[0], days[-1])
@@ -158,7 +165,8 @@ def test_major_news():
 def test_demo_fred():
     f = DemoFred()
     expect = {"WALCL": (5e6, 8e6), "WTREGEN": (3e5, 1.5e6), "RRPONTSYD": (0, 6),
-              "WRESBAL": (2e6, 4e6), "DFF": (3, 5)}
+              "WRESBAL": (2e6, 4e6), "DFF": (3, 5), "SOFR": (3, 5.5), "IORB": (3, 5.5),
+              "BAMLH0A0HYM2": (1.5, 7), "NFCI": (-1.5, 1.0), "DFII10": (0, 4)}
     assert set(expect) == set(config.FRED_SERIES)
     for sid, (lo, hi) in expect.items():
         s = f.series(sid, "2026-09-01")

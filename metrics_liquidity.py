@@ -75,6 +75,66 @@ def make_card(key: str, label: str, series: pd.Series, unit: str, *, change: str
     return card
 
 
+# ---------- 大类资产变化 ----------
+
+def asset_changes(series: pd.Series, kind: str, lags=(5, 20, 65)) -> dict:
+    """大类资产条的一项：最新值、日期及近 1 / 4 / 13 周变化。
+
+    series 为按日期升序的观测（索引 YYYYMMDD 字符串）；w1/w4/w13 相对往前 lags 个观测的点：
+    kind="pct" → (last/ref − 1)×100（%）；kind="bp" → (last − ref)×100（bp）。
+    观测不足、ref 为 0（pct）或结果非有限 → None；全空 → 全 None。
+    """
+    out = {"value": None, "date": None, "w1": None, "w4": None, "w13": None}
+    s = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    if s.empty:
+        return out
+    last = float(s.iloc[-1])
+    out["value"], out["date"] = last, _fmt_date(s.index[-1])
+    for key, lag in zip(("w1", "w4", "w13"), lags):
+        if len(s) <= lag:
+            continue
+        ref = float(s.iloc[-1 - lag])
+        if kind == "bp":
+            out[key] = _num((last - ref) * 100.0)
+        elif ref != 0:
+            out[key] = _num((last / ref - 1.0) * 100.0)
+    return out
+
+
+# ---------- 资金面利差 / 同比 ----------
+
+def spread_bp(a: pd.Series, b: pd.Series) -> pd.Series:
+    """(a − b)×100（bp），按索引 inner 对齐；任一为空 → 空 Series。"""
+    if len(a) == 0 or len(b) == 0:
+        return pd.Series(dtype=float)
+    a = pd.to_numeric(a, errors="coerce")
+    b = pd.to_numeric(b, errors="coerce")
+    return ((a - b) * 100.0).dropna().sort_index()  # 相减自动并集对齐，缺任一侧的日期 → NaN → 丢弃
+
+
+def policy_spread_bp(rate: pd.Series, policy_rates: list) -> pd.Series:
+    """(rate − 当日政策利率)×100（bp）。policy_rates = [(生效日 YYYYMMDD, 利率 %, 名称), ...]；
+    某日适用利率 = 生效日 ≤ 该日的最后一行，早于第一行的日期为 NaN（调用方 dropna 后即该日缺失）。"""
+    rows = sorted((str(d), float(r)) for d, r, *_ in policy_rates)
+    out = {}
+    for d, v in pd.to_numeric(rate, errors="coerce").dropna().items():
+        key = d.strftime("%Y%m%d") if isinstance(d, pd.Timestamp) else str(d)
+        applicable = [r for eff, r in rows if eff <= key]
+        out[d] = (float(v) - applicable[-1]) * 100.0 if applicable else float("nan")
+    return pd.Series(out, dtype=float)
+
+
+def yoy_pct(series: pd.Series) -> pd.Series:
+    """月度存量的同比（%）：索引为 YYYYMM 字符串，当月 / 12 个月前 − 1；缺 12 个月前或其为 0 → 该月缺失。"""
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    out = {}
+    for m, v in s.items():
+        prev = s.get(f"{int(m[:4]) - 1}{m[4:6]}")
+        if prev is not None and prev != 0:
+            out[m] = (float(v) / float(prev) - 1.0) * 100.0
+    return pd.Series(out, dtype=float).sort_index()
+
+
 # ---------- 流动性投票 ----------
 
 def _vote(x, hi=None, lo=None, *, hi_incl=False, lo_incl=False, inverted=False):

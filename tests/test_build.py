@@ -45,14 +45,25 @@ def test_build_demo_end_to_end(tmp_path):
     assert data["meta"]["tail_source"] == "stk_mins·510300" and data["fingerprint"]["tail"]["today"] is not None
     assert data["meta"]["sector_mode"] in ("申万行业", "stock_basic.industry")
     assert len(data["indices"]) == 5
-    com = data["commodities"]
-    assert [(c["key"], c["unit"]) for c in com] == [("gold", "元/克"), ("oil", "元/桶")]
-    assert all(c["close"] is not None and c["pct_chg"] is not None and c["date"] == DATE for c in com)
+    assert "commodities" not in data
+    assert [a["key"] for a in data["assets"]] == ["gold", "oil", "bond", "us10y", "usd", "cnh"]
+    assert all(a["value"] is not None and a["w1"] is not None and a["w4"] is not None and a["w13"] is not None
+               for a in data["assets"])
     liq = data["liquidity"]
     assert [c["key"] for c in liq["domestic"]] == ["turnover", "margin", "main_flow", "limit", "inst"]
-    assert [c["key"] for c in liq["macro"]] == ["shibor_on", "shibor_1w", "m2", "bond_fut", "brent"]
-    assert [c["key"] for c in liq["external"]] == ["fed_net", "reserves", "us2y", "us10y", "usd",
-                                                    "spx", "ixic", "dji"]
+    assert [c["key"] for c in liq["macro"]] == [
+        "shibor_on", "shibor_1w", "dr007", "dr001_spread", "r007_dr007", "shibor_1y", "m1", "m2", "sf",
+        "bond_fut", "brent"]
+    assert [c["key"] for c in liq["external"]] == [
+        "fed_net", "reserves", "tga", "rrp", "sofr_iorb", "nfci", "hy_oas", "us2y", "us10y", "tips10", "usd",
+        "spx", "ixic", "dji"]
+    mac = {c["key"]: c for c in liq["macro"]}
+    assert mac["dr001_spread"]["unit"] == "bp" and "隔夜逆回购 1.25%" in mac["dr001_spread"]["note"]
+    assert mac["r007_dr007"]["unit"] == "bp" and mac["shibor_1y"]["note"] == "同业存单参考"
+    assert 0 < mac["sf"]["value"] < 30  # 同比 %，demo 月增约 0.6% → 年化约 7%
+    ext = {c["key"]: c for c in liq["external"]}
+    assert ext["sofr_iorb"]["unit"] == "bp" and ext["nfci"]["note"] == "负值=偏宽松"
+    assert "不另计分" in ext["tga"]["note"] and "不另计分" in ext["rrp"]["note"]
     assert liq["vote"]["label"] in ("偏松", "中性", "偏紧") and len(liq["vote"]["signals"]) == 4
     assert liq["rate_expect"]["label"] != "无数据"
     assert all(c["value"] is not None for k in ("domestic", "macro", "external") for c in liq[k])
@@ -501,7 +512,7 @@ def test_total_failure_archives_nothing(tmp_path, monkeypatch):
     assert not (tmp_path / "history").exists()
 
 
-# ---------------------------------------------------------------- 金价、油价
+# ---------------------------------------------------------------- 大类资产、资金面新指标
 
 class NoCommoditySource(DemoSource):
     def gold_spot(self, start, end):
@@ -511,22 +522,62 @@ class NoCommoditySource(DemoSource):
         return super().crude_fut(start, end).iloc[0:0]
 
 
-def test_commodities_missing_degrades(tmp_path, monkeypatch):
+def test_assets_missing_degrades(tmp_path, monkeypatch):
     _, data = run(tmp_path, NoCommoditySource(), monkeypatch=monkeypatch)
-    assert [c["key"] for c in data["commodities"]] == ["gold", "oil"]
-    assert all(c["close"] is None and c["pct_chg"] is None and c["date"] is None for c in data["commodities"])
+    by = {a["key"]: a for a in data["assets"]}
+    assert list(by) == ["gold", "oil", "bond", "us10y", "usd", "cnh"]
+    for k in ("gold", "oil"):
+        assert all(by[k][f] is None for f in ("value", "date", "w1", "w4", "w13"))
+    assert all(by[k]["value"] is not None for k in ("bond", "us10y", "usd", "cnh"))
     assert any("黄金" in w for w in data["meta"]["warnings"])
+
+
+def test_assets_fields_and_kinds(tmp_path):
+    _, data = run(tmp_path)
+    by = {a["key"]: a for a in data["assets"]}
+    assert {k: (a["unit"], a["chg_kind"]) for k, a in by.items()} == {
+        "gold": ("元/克", "pct"), "oil": ("元/桶", "pct"), "bond": ("元", "pct"),
+        "us10y": ("%", "bp"), "usd": ("点", "pct"), "cnh": ("元/美元", "pct")}
+    assert by["bond"]["note"] == "价格涨=收益率降" and by["cnh"]["note"] == "数值涨=人民币贬"
+    assert all(a["date"] == DATE for a in data["assets"])
 
 
 class FlatGoldSource(DemoSource):
     def gold_spot(self, start, end):
-        return pd.DataFrame({"trade_date": ["20261104", "20261105"], "close": [500.0, 510.0]})
+        return pd.DataFrame({"trade_date": ["20261030", "20261105", "20261106", "20261109"],
+                             "close": [400.0, 500.0, 510.0, 999.0]})
 
 
-def test_commodity_change_from_previous_close(tmp_path, monkeypatch):
+def test_assets_only_uses_points_up_to_trade_date(tmp_path, monkeypatch):
     _, data = run(tmp_path, FlatGoldSource(), monkeypatch=monkeypatch)
-    gold = data["commodities"][0]
-    assert gold["close"] == 510.0 and gold["date"] == "20261105" and gold["pct_chg"] == pytest.approx(2.0)
+    gold = data["assets"][0]
+    assert gold["value"] == 510.0 and gold["date"] == "20261106"
+    assert gold["w1"] is None  # 仅 3 个 <= D 的观测，不足 6 个
+
+
+def test_dr001_spread_follows_policy_rate_effective_date(tmp_path):
+    _, d1 = run(tmp_path)
+    c1 = next(c for c in d1["liquidity"]["macro"] if c["key"] == "dr001_spread")
+    assert c1["value"] is not None and c1["date"] == DATE
+    out = tmp_path / "early.html"
+    assert main(["--demo", "--out", str(out), "--date", "20261030"]) == 0
+    d0 = json.loads(extract_data_json(out.read_text(encoding="utf-8")))
+    c0 = next(c for c in d0["liquidity"]["macro"] if c["key"] == "dr001_spread")
+    assert c0["value"] is None
+    assert next(c for c in d0["liquidity"]["macro"] if c["key"] == "dr007")["value"] is not None
+
+
+class NoRepoSource(DemoSource):
+    def repo(self, code, start, end):
+        raise RuntimeError("无权限")
+
+
+def test_repo_missing_degrades(tmp_path, monkeypatch):
+    _, data = run(tmp_path, NoRepoSource(), monkeypatch=monkeypatch)
+    mac = {c["key"]: c for c in data["liquidity"]["macro"]}
+    assert all(mac[k]["value"] is None for k in ("dr007", "dr001_spread", "r007_dr007"))
+    assert mac["shibor_1y"]["value"] is not None
+    assert any("DR007" in w for w in data["meta"]["warnings"])
 
 
 # ---------------------------------------------------------------- 观察池天量

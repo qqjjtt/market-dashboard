@@ -21,7 +21,9 @@ _ETF_NAMES = {
 _INDEX_BASE = {"000001.SH": 3900, "399001.SZ": 13200, "399006.SZ": 3000, "000688.SH": 1050, "000300.SH": 4600}
 _FLOW_INDUSTRIES = ["半导体", "银行", "证券", "软件开发", "白酒", "化学制药", "电池", "光伏设备", "工业金属",
                     "通信设备", "汽车零部件", "房地产开发", "煤炭开采", "电力", "消费电子"]
-_FX_BASE = {"UKOIL": (80.0, 0.018), "USDOLLAR": (100.0, 0.004), "FED30D": (96.1, 0.0003)}
+_FX_BASE = {"UKOIL": (80.0, 0.018), "USDOLLAR": (100.0, 0.004), "FED30D": (96.1, 0.0003),
+            "USDCNH.FXCM": (6.9, 0.002)}
+_REPO_BASE = {"DR001.IB": 1.30, "DR007.IB": 1.35, "R007.IB": 1.39}
 _GLOBAL_BASE = {"SPX": 5800.0, "IXIC": 18500.0, "DJI": 42000.0, "HSI": 23000.0}
 _NEWS_HITS = [  # (距 end_dt 的小时数, 来源, 标题)：命中 NEWS_KW_*
     (2, "演示快讯", "华福证券中标央行第三批互换便利操作12亿元"),
@@ -206,7 +208,27 @@ class DemoSource:
     def shibor(self, start, end):
         on = self._slice(self._walk("shibor_on", 1.3, 0.005), start, end)
         w1 = self._slice(self._walk("shibor_w1", 1.4, 0.005), start, end)
-        return pd.DataFrame({"date": list(on.index), "on": on.to_numpy().round(4), "w1": w1.to_numpy().round(4)})
+        y1 = self._slice(self._walk("shibor_y1", 1.6, 0.003), start, end)
+        return pd.DataFrame({"date": list(on.index), "on": on.to_numpy().round(4), "w1": w1.to_numpy().round(4),
+                             "y1": y1.to_numpy().round(4)})
+
+    def repo(self, code, start, end):
+        if code not in _REPO_BASE:
+            return _empty(["trade_date", "rate"])
+        s = self._slice(self._walk(("repo", code), _REPO_BASE[code], 0.005), start, end)
+        return pd.DataFrame({"trade_date": list(s.index), "rate": s.to_numpy().round(4)})
+
+    def social_financing(self, start_m, end_m):
+        months, y, m = [], int(start_m[:4]), int(start_m[4:])
+        while f"{y}{m:02d}" <= end_m:
+            months.append(f"{y}{m:02d}")
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        # 存量从 4.0e5 起每月约 +0.6%（带小噪声），与起始月无关地按「距 2024-01 的月数」生成，保证区间一致
+        vals = []
+        for mo in months:
+            k = (int(mo[:4]) - 2024) * 12 + int(mo[4:]) - 1
+            vals.append(round(float(4.0e5 * 1.006 ** k * (1 + self._rng("sf", mo).normal(0, 0.0005))), 1))
+        return pd.DataFrame({"month": months, "stk_endval": vals})
 
     def m2(self, start_m, end_m):
         months, y, m = [], int(start_m[:4]), int(start_m[4:])
@@ -214,7 +236,8 @@ class DemoSource:
             months.append(f"{y}{m:02d}")
             y, m = (y + 1, 1) if m == 12 else (y, m + 1)
         vals = [round(float(8.0 + self._rng("m2", mo).normal(0, 0.4)), 1) for mo in months]
-        return pd.DataFrame({"month": months, "m2_yoy": vals})
+        m1 = [round(float(5.0 + self._rng("m1", mo).normal(0, 0.4)), 1) for mo in months]
+        return pd.DataFrame({"month": months, "m1_yoy": m1, "m2_yoy": vals})
 
     def bond_fut_10y(self, start, end):
         s = self._slice(self._walk("bondfut", 108.5, 0.0015), start, end)
@@ -284,7 +307,14 @@ class DemoFred:
         "RRPONTSYD": ("B", 1.5, 0.15, 0.1, 5.0),           # 十亿美元
         "WRESBAL": ("W-WED", 2.9e6, 0.005, 2.2e6, 3.8e6),  # 百万美元
         "DFF": ("D", 3.88, 0.01, 3.0, 5.0),                # %
+        "SOFR": ("B", 4.3, 0.002, 3.0, 5.5),               # %
+        "IORB": ("B", 4.4, 0.002, 3.0, 5.5),               # %
+        "BAMLH0A0HYM2": ("B", 3.0, 0.01, 1.5, 7.0),        # %
+        "NFCI": ("W-FRI", -0.5, 0.02, -1.5, 1.0),          # 点（加性）
+        "DFII10": ("B", 1.9, 0.03, 0.2, 3.8),              # %（加性）
     }
+    # 加性游走序列 -> 步长倍率
+    _ADDITIVE = {"RRPONTSYD": 1.0, "DFF": 0.3, "NFCI": 1.0, "DFII10": 0.3}
 
     def __init__(self, seed=7):
         self.seed = seed
@@ -296,8 +326,8 @@ class DemoFred:
         idx = pd.date_range("2024-01-01", pd.Timestamp.today().normalize(), freq=freq)
         rng = np.random.default_rng([self.seed, _hash("fred", series_id)])
         steps = rng.normal(0, sd, len(idx))
-        if series_id in ("RRPONTSYD", "DFF"):  # 加性游走
-            vals = base + np.cumsum(steps) * (1 if series_id == "RRPONTSYD" else 0.3)
+        if series_id in self._ADDITIVE:  # 加性游走
+            vals = base + np.cumsum(steps) * self._ADDITIVE[series_id]
         else:
             vals = base * np.exp(np.cumsum(steps))
         vals = np.clip(vals, lo, hi)

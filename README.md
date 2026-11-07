@@ -83,9 +83,11 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 - **流动性投票**（自定口径，阈值见 `config.VOTE`）：① 全市场成交额 ÷ 前 20 日均额（> 1.10 松，< 0.90 紧）；② 两融余额近 5 个交易日变化（> +0.5% 松，< −0.5% 紧）；③ 大盘主力净流入近 5 日累计（> 0 松，< 0 紧）；④ Shibor 1W 较 20 日均值（低 5bp 以上松，高 5bp 以上紧）。页面逐项展示。
 - 场内资金卡片：全市场成交额（亿元，剔除北交所）、两融余额（沪深北合计；**次日 8:30 才出前一日数据**，卡片标注数据日期）、大盘主力净流入（`moneyflow_mkt_dc`，东方财富口径，亿元）、涨停 / 跌停家数（`limit_list_d` 精确值，市场体温面板展示的涨停 / 跌停家数同口径；取不到时体温面板回退为按涨跌幅近似并记 WARNING）、龙虎榜机构席位净买入（亿元，仅取最近 5 个交易日）。
-- 宏观 / 价格卡片：Shibor 隔夜 / 1W、M2 同比（月度）、布伦特原油（`fx_daily` `UKOIL`）。
+- 宏观 / 价格卡片（`liquidity.macro`，只展示、不参与投票）：Shibor 隔夜 / 1W / 1Y（1Y 作同业存单参考，`shibor`）、DR007（`repo_daily` `DR007.IB` 加权利率，%）、DR001−政策利率（bp，`DR001.IB` 加权利率减当日政策利率）、R007−DR007（bp，`R007.IB` 减 `DR007.IB`，按日对齐）、M1 同比与 M2 同比（`cn_m`，%，月度）、社融存量同比（`sf_month` 的 `stk_endval` 当月 ÷ 12 个月前 − 1，%，月度）、10 年国债期货、布伦特原油（`fx_daily` `UKOIL`）。**政策利率锚在 `config.POLICY_RATES`（生效日、利率、名称），央行调整时需手工在末尾追加一行**；某日适用利率 = 生效日 ≤ 该日的最后一行，早于第一行的日期不出值。目前为 2026-11-02 起隔夜逆回购 1.25%。
+- 大类资产条（总览与流动性标签页的指数条下方，`assets`）：黄金（`sge_daily`，元/克）、原油（上海原油主力，元/桶）、10 年国债期货（元）、美债 10 年（`us_tycr`，%，变化按 bp）、美元指数（`fx_daily` `USDOLLAR`，FXCM 点位，非 DXY）、离岸人民币（`fx_daily` `USDCNH.FXCM`，元/美元，数值涨 = 人民币贬）；显示最新值与近 1 / 4 / 13 周（往前 5 / 20 / 65 个观测）变化，价格类为 %、美债为 bp。**中债收益率曲线 `yc_cb` 本账号无权限，所以「债」用 10 年国债期货价格（价格涨 = 收益率降）。**
 - **10 年国债期货（`T.CFX` 主连收盘价）只是收益率的反向代理**：价格涨 = 收益率降，不是收益率本身。
 - **外围 · 美元流动性**（FRED + tushare）：美联储净流动性 = WALCL − WTREGEN − RRPONTSYD，统一为十亿美元并按周对齐，展示当前值与 4 周变化；银行准备金 WRESBAL；联邦基金有效利率 DFF 与 30 天联邦基金期货隐含利率（`100 − FED30D`）比较，差 < −10bp 标「预期降息」、> +10bp 标「预期加息」，其余「预期按兵不动」（阈值是本项目的取舍）；美债 2 年 / 10 年、美元指数（`fx_daily` `USDOLLAR`，是 FXCM 美元指数、点位在 12000 上下，**不是** ICE 的 DXY）、美股三大指数。`fx_daily` 的最新一根常是刚开盘、尚未收完的残缺日线（tick 数极少），会被丢弃并记 WARNING，取前一根，所以这类卡片的日期可能比其他卡片早一天。
+- 外围新增 6 张卡（FRED，只展示）：TGA 财政部账户（`WTREGEN` ÷ 1000，十亿美元）、隔夜逆回购 ON RRP（`RRPONTSYD`，十亿美元）——两者已计入净流动性，不另计分；SOFR−IORB（bp，`SOFR` 减 `IORB`，按日对齐）、NFCI 金融条件（`NFCI`，周频，负值 = 偏宽松）、美国高收益债利差（`BAMLH0A0HYM2`，%）、美债 10 年实际利率（`DFII10`，%）。
 - 政策工具表：见下文「`data/policy_ops.csv` 维护方法」。
 - **新闻时间线目前暂时下线**（`config.NEWS_ENABLED = False`）：构建不调用 `major_news`、页面不显示这一块，payload 里 `news.status` 为 `disabled`；以下是恢复后的行为，把开关改回 `True` 即可。
 - 新闻时间线：`major_news` 最近 7 个自然日，**只留影响资金流动性的标题**，分「国内政策 / 外围」两个页签；只列标题与原文链接，**不做任何分析或判断**。规则（词表都在 `config.py`）：标题含 `NEWS_EXCLUDE`（立案、处罚、黄金、国资委等杂讯）→ 丢弃；含 `NEWS_US_MARKERS`（美国、美联储、美债、美元…）→ 外围，且须命中 `NEWS_KW_EXTERNAL`（美联储、加息 / 降息、非农、CPI、美债、美元指数、RRP 等），所以「xx 亿美元」这类金额新闻不会进来；含 `NEWS_FOREIGN_MARKERS`（英国、日本、欧元等）→ 丢弃，外围只看美国；其余 → 国内，须命中 `NEWS_KW_DOMESTIC`（互换便利、再贷款、汇金 / 平准、降准、LPR、MLF、逆回购、净投放、货币政策、特别国债、印花税等）。原油、关税、地缘、证监会、国务院、财政部这类宽泛词已不再作为关键词。地区标记是子串匹配，加词时注意别误伤（如「日央行」会命中「11月6日央行开展…」，所以没用）。同标题去重；标题同时含「互换便利 / 再贷款」且含金额数字的会打「疑似新操作 · 请核对 policy_ops.csv」标签。`major_news` 单次最多 800 行且有日 / 小时配额，代码从最新时间向前翻页并以调用次数封顶（见上文「接口配额」）。
@@ -133,9 +135,9 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 | 大盘资金流 | `moneyflow_mkt_dc` | |
 | 两融 | `margin` | 沪深北三所按日求和；某日交易所数不足整日丢弃 |
 | 涨跌停 / 龙虎榜 | `limit_list_d`、`top_inst` | |
-| 货币与宏观 | `shibor`、`cn_m` | |
-| 国债期货 / 外汇商品 | `fut_daily`（`T.CFX`）、`fx_daily`（`UKOIL`、`USDOLLAR`、`FED30D`） | |
-| 金价、油价（大盘条） | `sge_daily`（`Au99.99`，元/克，每日 18–19 点更新）、`fut_daily`（`SC.INE` 原油主力，元/桶，17–18 点更新） | 涨跌幅按前一根收盘自算；取不到显示「—」并记告警 |
+| 货币与宏观 | `shibor`（含 1Y）、`cn_m`（M1/M2）、`repo_daily`（`DR001.IB`、`DR007.IB`、`R007.IB`）、`sf_month` | 回购利率取 `weight` 加权利率，每日 18:30–19 点更新 |
+| 国债期货 / 外汇商品 | `fut_daily`（`T.CFX`）、`fx_daily`（`UKOIL`、`USDOLLAR`、`FED30D`、`USDCNH.FXCM`） | |
+| 金价、油价（大类资产条） | `sge_daily`（`Au99.99`，元/克，每日 18–19 点更新）、`fut_daily`（`SC.INE` 原油主力，元/桶，17–18 点更新） | 变化按往前 5 / 20 / 65 个观测自算；取不到显示「—」并记告警 |
 | 美股 / 美债 | `index_global`、`us_tycr` | |
 | 新闻 | `major_news` | 单次最多 800 行；40 次/天、30 次/小时 |
 
@@ -145,7 +147,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 - 设置了 `FRED_API_KEY` 时走官方 API：`https://api.stlouisfed.org/fred/series/observations`（JSON）。
 - 未设置时退回公开 CSV（无需 key）：`https://fred.stlouisfed.org/graph/fredgraph.csv?id=<序列>&cosd=<起始日>`。2026-11 起该地址对脚本请求经常直接断开连接（本机与 GitHub Actions 都如此），所以线上应配 key。
-- 序列：`WALCL`（美联储总资产，百万美元，周频）、`WTREGEN`（财政部 TGA 账户，百万美元，周频）、`RRPONTSYD`（隔夜逆回购，十亿美元，日频）、`WRESBAL`（银行准备金，百万美元，周频）、`DFF`（联邦基金有效利率，%，日频）。
+- 序列：`WALCL`（美联储总资产，百万美元，周频）、`WTREGEN`（财政部 TGA 账户，百万美元，周频）、`RRPONTSYD`（隔夜逆回购，十亿美元，日频）、`WRESBAL`（银行准备金，百万美元，周频）、`DFF`（联邦基金有效利率，%，日频）；新增 `SOFR`（担保隔夜融资利率，%，日频）、`IORB`（准备金余额利率，%，日频）、`BAMLH0A0HYM2`（美国高收益债期权调整利差，%，日频）、`NFCI`（芝加哥联储金融状况指数，周频，负值偏宽松）、`DFII10`（10 年期 TIPS 实际收益率，%，日频）。
 - 周频数据天然滞后数日，各卡片标注自身数据日期。FRED 失败时对应卡片显示「无数据」，不影响其他部分。
 
 ## `data/policy_ops.csv` 维护方法

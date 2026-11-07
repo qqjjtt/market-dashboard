@@ -316,11 +316,31 @@ def test_inst_net_buy_unit_yuan_and_dedupe():
     assert src2.inst_net_buy("20261105") is None
 
 
-def test_shibor_renames_1w():
-    sh = pd.DataFrame({"date": ["20261105"], "on": [1.3], "1w": [1.4], "2w": [1.5]})
+def test_shibor_renames_1w_1y():
+    sh = pd.DataFrame({"date": ["20261105"], "on": [1.3], "1w": [1.4], "2w": [1.5], "1y": [1.6]})
     src, _ = make(FakePro(shibor=sh))
     df = src.shibor("20261101", "20261105")
-    assert list(df.columns) == ["date", "on", "w1"] and df.w1.iloc[0] == 1.4
+    assert list(df.columns) == ["date", "on", "w1", "y1"] and df.w1.iloc[0] == 1.4 and df.y1.iloc[0] == 1.6
+
+
+def test_repo_renames_weight_to_rate():
+    rp = pd.DataFrame({"ts_code": ["DR007.IB"] * 2, "trade_date": ["20261106", "20261105"],
+                       "weight": [1.345, 1.34], "repo_maturity": ["7D", "7D"]})
+    pro = FakePro(repo_daily=rp)
+    src, _ = make(pro)
+    df = src.repo("DR007.IB", "20261101", "20261106")
+    assert list(df.columns) == ["trade_date", "rate"]
+    assert list(df.trade_date) == ["20261105", "20261106"] and df.rate.iloc[-1] == 1.345
+    assert pro.calls[0][1]["ts_code"] == "DR007.IB"
+
+
+def test_social_financing_columns():
+    sf = pd.DataFrame({"month": ["202610", "202609"], "stk_endval": [4.4e5, 4.38e5], "inc_month": [1, 2]})
+    pro = FakePro(sf_month=sf)
+    src, _ = make(pro)
+    df = src.social_financing("202409", "202610")
+    assert list(df.columns) == ["month", "stk_endval"] and list(df.month) == ["202609", "202610"]
+    assert pro.calls[0][1] == {"start_m": "202409", "end_m": "202610"}
 
 
 def test_bond_fut_and_fx():
@@ -338,11 +358,11 @@ def test_bond_fut_and_fx():
 def test_us_yields_and_m2():
     pro = FakePro(
         us_tycr=pd.DataFrame({"date": ["20261105"], "m1": [1], "y2": [3.9], "y10": [4.2]}),
-        cn_m=pd.DataFrame({"month": ["202610"], "m2_yoy": [8.0], "m1": [1]}),
+        cn_m=pd.DataFrame({"month": ["202610"], "m1_yoy": [5.0], "m2_yoy": [8.0], "m1": [1]}),
     )
     src, _ = make(pro)
     assert list(src.us_yields("20261101", "20261105").columns) == ["date", "y2", "y10"]
-    assert list(src.m2("202610", "202610").columns) == ["month", "m2_yoy"]
+    assert list(src.m2("202610", "202610").columns) == ["month", "m1_yoy", "m2_yoy"]
 
 
 # ---------------------------------------------------------------- major_news

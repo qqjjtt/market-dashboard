@@ -76,6 +76,9 @@ SECTORS = [
 
 GOLD_CODE = "Au99.99"  # 上金所现货，元/克
 OIL_CODE = "SC.INE"  # 上期能源原油主力，元/桶（同 T.CFX 写法）
+# 政策利率锚：(生效日, 利率 %, 名称)。2026-11-02 起央行以隔夜逆回购为短端锚（公告 2026-10-30），
+# 7 天逆回购改为利率招标、不再固定利率。央行调整时在末尾追加一行（手工更新）。
+POLICY_RATES = [("20261102", 1.25, "隔夜逆回购")]
 A_INDICES = [("000001.SH", "上证指数"), ("399001.SZ", "深证成指"), ("399006.SZ", "创业板指"),
              ("000688.SH", "科创50"), ("000300.SH", "沪深300")]
 US_INDICES = [("SPX", "标普500"), ("IXIC", "纳指"), ("DJI", "道指")]
@@ -97,7 +100,7 @@ NEWS_US_MARKERS = ["美国", "美联储", "美债", "美元", "美财政部", "�
 NEWS_FOREIGN_MARKERS = ["英国", "英镑", "日本", "日元", "欧洲", "欧元", "欧央行", "捷克",
                         "菲律宾", "韩国", "澳洲", "澳大利亚", "加拿大", "瑞士", "印度"]  # 非美外围：外围只看美国
 
-FRED_SERIES = ["WALCL", "WTREGEN", "RRPONTSYD", "WRESBAL", "DFF"]
+FRED_SERIES = ["WALCL", "WTREGEN", "RRPONTSYD", "WRESBAL", "DFF", "SOFR", "IORB", "BAMLH0A0HYM2", "NFCI", "DFII10"]
 MAX_CALLS_PER_MIN = 200
 DISCLOSURE_MIN = 0.8
 SPARK_DAYS = 30

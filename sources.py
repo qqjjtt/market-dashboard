@@ -286,10 +286,24 @@ class TushareSource:
     # ------------------------------------------------------------ 宏观与跨市场
 
     def shibor(self, start, end):
-        return self._fetch("shibor", ["date", "on", "w1"], rename={"1w": "w1"}, start_date=start, end_date=end)
+        """Shibor（%）：隔夜 on、1 周 w1、1 年 y1。"""
+        return self._fetch("shibor", ["date", "on", "w1", "y1"], rename={"1w": "w1", "1y": "y1"},
+                           start_date=start, end_date=end)
+
+    def repo(self, code, start, end):
+        """银行间回购定盘利率（repo_daily）：DR001.IB / DR007.IB / R007.IB 等，rate = 加权利率 weight，
+        单位 %。每日 18:30–19 点更新。"""
+        return self._fetch("repo_daily", ["trade_date", "rate"], rename={"weight": "rate"},
+                           ts_code=code, start_date=start, end_date=end)
 
     def m2(self, start_m, end_m):
-        return self._fetch("cn_m", ["month", "m2_yoy"], start_m=start_m, end_m=end_m, fields="month,m2_yoy")
+        """货币供应同比（cn_m，%，月度）：m1_yoy、m2_yoy。方法名沿用 m2。"""
+        return self._fetch("cn_m", ["month", "m1_yoy", "m2_yoy"], start_m=start_m, end_m=end_m,
+                           fields="month,m1_yoy,m2_yoy")
+
+    def social_financing(self, start_m, end_m):
+        """社会融资规模存量（sf_month，stk_endval，月度）；同比由调用方按 12 个月前自算。"""
+        return self._fetch("sf_month", ["month", "stk_endval"], start_m=start_m, end_m=end_m)
 
     def bond_fut_10y(self, start, end):
         return self._fetch("fut_daily", ["trade_date", "close"], ts_code="T.CFX",
