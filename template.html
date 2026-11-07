@@ -1225,7 +1225,7 @@ function renderFooter(root) {
     d.appendChild(ul);
     root.appendChild(d);
   }
-  root.appendChild(el("p", null, "交易日 " + fmtDateLong(m.trade_date) + " · 生成 " + (m.generated_at || DASH) + "（北京时间） · 板块口径 " + (m.sector_mode || DASH) +
+  root.appendChild(el("p", null, "交易日 " + fmtDateLong(m.trade_date) + " · 生成 " + (m.generated_at || DASH) + "（北京时间） · 浓度墙板块口径 " + (m.sector_mode || DASH) +
     " · 尾盘来源 " + (m.tail_source || DASH) + " · 各面板数据日期见卡片角标"));
   root.appendChild(el("p", null, "数据来源：tushare、FRED 公开数据；仅供复盘参考，不构成投资建议。"));
 }
