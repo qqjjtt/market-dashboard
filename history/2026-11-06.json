@@ -1,7 +1,7 @@
 {
  "meta": {
   "trade_date": "20261106",
-  "generated_at": "2026-11-07 23:40",
+  "generated_at": "2026-11-08 00:19",
   "demo": false,
   "team_pool": "汇金重仓 6 只",
   "sector_mode": "申万行业",
@@ -16,7 +16,7 @@
    "etf_minutes(510300.SH) 频率超限，返回 None",
    "分钟线 510300.SH 无权限或频率受限（stk_mins 账号限额 1 次/小时），尾盘占比留空"
   ],
-  "code_version": "7a7db2a"
+  "code_version": "2a6ef7a"
  },
  "conclusions": [
   {
@@ -3911,138 +3911,358 @@
    {
     "icon": "🏠",
     "name": "地产·内需政策",
+    "hot": false,
     "n": 151,
     "today": 71.83320201709132,
     "yday": 68.20874641729445,
     "chg": 3.6244555997968746,
-    "color": "red"
+    "color": "red",
+    "profit": 42.2,
+    "trapped": 57.8
    },
    {
     "icon": "🌾",
     "name": "农业·种业",
+    "hot": false,
     "n": 22,
     "today": 71.12571718964215,
     "yday": 73.98274871650098,
     "chg": -2.857031526858833,
-    "color": "red"
+    "color": "red",
+    "profit": 46.4,
+    "trapped": 53.6
    },
    {
     "icon": "🤖",
     "name": "机器人·汽车零部件",
+    "hot": false,
     "n": 546,
     "today": 69.52603436588066,
     "yday": 66.89626999736434,
     "chg": 2.6297643685163195,
-    "color": "red"
+    "color": "red",
+    "profit": 40.3,
+    "trapped": 59.7
    },
    {
     "icon": "🛢️",
     "name": "油气航运·地缘防御",
+    "hot": false,
     "n": 208,
     "today": 69.15608958306584,
     "yday": 67.48644212201017,
     "chg": 1.6696474610556606,
-    "color": "red"
+    "color": "red",
+    "profit": 65.0,
+    "trapped": 35.0
    },
    {
     "icon": "🎮",
     "name": "AI软件·游戏·传媒",
+    "hot": true,
     "n": 368,
     "today": 67.73414117808818,
     "yday": 66.67325414080382,
     "chg": 1.0608870372843597,
-    "color": "red"
+    "color": "red",
+    "profit": 50.2,
+    "trapped": 49.8
    },
    {
     "icon": "💊",
     "name": "医药·创新药",
+    "hot": false,
     "n": 253,
     "today": 67.6319723161332,
     "yday": 65.43821293809731,
     "chg": 2.1937593780358924,
-    "color": "orange"
+    "color": "red",
+    "profit": 50.6,
+    "trapped": 49.4
+   },
+   {
+    "icon": "🔥",
+    "name": "光伏加工设备",
+    "hot": true,
+    "n": 10,
+    "today": 67.58464935395382,
+    "yday": 63.71243733068657,
+    "chg": 3.8722120232672523,
+    "color": "red",
+    "profit": 47.6,
+    "trapped": 52.4
    },
    {
     "icon": "⚡",
     "name": "锂电·新能源",
+    "hot": false,
     "n": 254,
     "today": 66.71248860895977,
     "yday": 64.87908538382683,
     "chg": 1.8334032251329404,
-    "color": "orange"
+    "color": "orange",
+    "profit": 42.6,
+    "trapped": 57.4
+   },
+   {
+    "icon": "🔥",
+    "name": "光伏电池组件",
+    "hot": true,
+    "n": 22,
+    "today": 66.05468520452776,
+    "yday": 62.846995173126764,
+    "chg": 3.2076900314009933,
+    "color": "orange",
+    "profit": 68.5,
+    "trapped": 31.5
    },
    {
     "icon": "🍶",
     "name": "消费白酒·零售",
+    "hot": false,
     "n": 104,
     "today": 65.89545924086269,
     "yday": 66.75349423333483,
     "chg": -0.8580349924721418,
-    "color": "orange"
+    "color": "orange",
+    "profit": 71.3,
+    "trapped": 28.7
    },
    {
     "icon": "☀️",
     "name": "光伏设备·组件",
+    "hot": true,
     "n": 67,
     "today": 65.07156858468991,
     "yday": 60.659569327878906,
     "chg": 4.411999256811008,
-    "color": "orange"
+    "color": "orange",
+    "profit": 55.2,
+    "trapped": 44.8
    },
    {
     "icon": "⛏️",
     "name": "有色金属·资源",
+    "hot": true,
     "n": 141,
     "today": 65.02078010082974,
     "yday": 62.024181428603306,
     "chg": 2.9965986722264333,
-    "color": "orange"
+    "color": "orange",
+    "profit": 29.6,
+    "trapped": 70.4
    },
    {
     "icon": "🔥",
     "name": "高位连板·情绪核心",
+    "hot": false,
     "n": 376,
     "today": 64.38514258612429,
     "yday": 61.16997617456793,
     "chg": 3.2151664115563605,
-    "color": "blue"
+    "color": "orange",
+    "profit": 44.0,
+    "trapped": 56.0
+   },
+   {
+    "icon": "🔥",
+    "name": "航空机场",
+    "hot": true,
+    "n": 12,
+    "today": 63.266298539590146,
+    "yday": 59.314040132532,
+    "chg": 3.952258407058146,
+    "color": "orange",
+    "profit": 54.3,
+    "trapped": 45.7
    },
    {
     "icon": "📈",
     "name": "券商·金融科技",
+    "hot": false,
     "n": 72,
     "today": 62.25265567362991,
     "yday": 60.87333481890904,
     "chg": 1.3793208547208664,
-    "color": "blue"
+    "color": "blue",
+    "profit": 27.1,
+    "trapped": 72.9
+   },
+   {
+    "icon": "🔥",
+    "name": "黄金",
+    "hot": true,
+    "n": 10,
+    "today": 61.91942513361075,
+    "yday": 58.573399560441906,
+    "chg": 3.346025573168845,
+    "color": "blue",
+    "profit": 40.8,
+    "trapped": 59.2
+   },
+   {
+    "icon": "🔥",
+    "name": "航空运输",
+    "hot": true,
+    "n": 8,
+    "today": 61.81294986132987,
+    "yday": 57.85536324831985,
+    "chg": 3.9575866130100223,
+    "color": "blue",
+    "profit": 51.9,
+    "trapped": 48.1
    },
    {
     "icon": "🏦",
     "name": "红利权重·银行",
+    "hot": false,
     "n": 200,
     "today": 61.63828408342692,
     "yday": 61.40730691743481,
     "chg": 0.23097716599210827,
-    "color": "blue"
+    "color": "blue",
+    "profit": 75.3,
+    "trapped": 24.7
    },
    {
     "icon": "💻",
     "name": "半导体·消费电子",
+    "hot": false,
     "n": 427,
     "today": 60.877955556835694,
     "yday": 58.211359269633256,
     "chg": 2.666596287202438,
-    "color": "blue"
+    "color": "blue",
+    "profit": 28.5,
+    "trapped": 71.5
    },
    {
     "icon": "🔌",
     "name": "CPO·PCB",
+    "hot": false,
     "n": 121,
     "today": 59.824310210232355,
     "yday": 58.34620665548833,
     "chg": 1.478103554744024,
-    "color": "blue"
+    "color": "blue",
+    "profit": 16.1,
+    "trapped": 83.9
    }
-  ]
+  ],
+  "hot": [
+   {
+    "code": "857352.SI",
+    "name": "光伏电池组件",
+    "level": "L3",
+    "parent": "",
+    "amount_ratio": 2.4,
+    "pct_n": 14.44,
+    "score": 0.99,
+    "rank": 1,
+    "covered": false
+   },
+   {
+    "code": "801735.SI",
+    "name": "光伏设备",
+    "level": "L2",
+    "parent": "",
+    "amount_ratio": 2.05,
+    "pct_n": 16.29,
+    "score": 0.99,
+    "rank": 2,
+    "covered": true
+   },
+   {
+    "code": "801764.SI",
+    "name": "游戏",
+    "level": "L2",
+    "parent": "",
+    "amount_ratio": 1.72,
+    "pct_n": 12.49,
+    "score": 0.96,
+    "rank": 3,
+    "covered": true
+   },
+   {
+    "code": "857641.SI",
+    "name": "游戏",
+    "level": "L3",
+    "parent": "",
+    "amount_ratio": 1.72,
+    "pct_n": 12.49,
+    "score": 0.96,
+    "rank": 4,
+    "covered": true
+   },
+   {
+    "code": "801053.SI",
+    "name": "贵金属",
+    "level": "L2",
+    "parent": "",
+    "amount_ratio": 1.69,
+    "pct_n": 11.9,
+    "score": 0.96,
+    "rank": 5,
+    "covered": true
+   },
+   {
+    "code": "850531.SI",
+    "name": "黄金",
+    "level": "L3",
+    "parent": "",
+    "amount_ratio": 1.69,
+    "pct_n": 12.04,
+    "score": 0.95,
+    "rank": 6,
+    "covered": false
+   },
+   {
+    "code": "851741.SI",
+    "name": "航空运输",
+    "level": "L3",
+    "parent": "",
+    "amount_ratio": 1.98,
+    "pct_n": 8.16,
+    "score": 0.95,
+    "rank": 7,
+    "covered": false
+   },
+   {
+    "code": "857355.SI",
+    "name": "光伏加工设备",
+    "level": "L3",
+    "parent": "",
+    "amount_ratio": 1.62,
+    "pct_n": 19.79,
+    "score": 0.95,
+    "rank": 8,
+    "covered": false
+   },
+   {
+    "code": "801991.SI",
+    "name": "航空机场",
+    "level": "L2",
+    "parent": "",
+    "amount_ratio": 1.88,
+    "pct_n": 6.92,
+    "score": 0.93,
+    "rank": 9,
+    "covered": false
+   },
+   {
+    "code": "857354.SI",
+    "name": "光伏辅材",
+    "level": "L3",
+    "parent": "",
+    "amount_ratio": 1.49,
+    "pct_n": 13.29,
+    "score": 0.93,
+    "rank": 10,
+    "covered": false
+   }
+  ],
+  "profit_date": "20261106",
+  "market_profit": 50.4,
+  "market_trapped": 49.6
  }
 }
