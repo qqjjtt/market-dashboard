@@ -12,6 +12,7 @@
     --bg: #ffffff; --surface: #f4f4f2; --ink: #1f2b4d; --muted: #646b81;
     --hair: color-mix(in oklab, var(--ink) 12%, transparent);
     --up: #c8402f; --down: #1f8a5b; --cold: #2f5d8a; --warm: #b8651a;
+    --z0: #b5452f; --z1: #d08a4a; --z2: #9aa0ae; --z3: #5b86b0; --z4: #2f5d8a;
     --radius: 8px;
   }
   * { box-sizing: border-box; }
@@ -146,6 +147,51 @@
 
   /* tables / news */
   .tbl-wrap { overflow-x: auto; }
+
+  /* liquidity gauge */
+  .gh { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 8px 32px; align-items: center; margin-top: 16px; }
+  .gh h2 { margin: 0 0 2px; font-size: 22px; }
+  .gh .q { color: var(--muted); margin: 0 0 6px; }
+  .gauge svg { width: 100%; height: auto; display: block; }
+  .gauge.mini svg { max-width: 300px; margin: 0 auto; }
+  .gauge .seg-label { font-size: 13px; font-weight: 600; fill: var(--muted); letter-spacing: .5px; }
+  .gauge .seg-label.on { fill: #fff; }
+  .gauge .tick { font-size: 11px; fill: var(--muted); }
+  .gauge .val { font-size: 46px; font-weight: 700; fill: var(--ink); }
+  .gauge .vlab { font-size: 15px; font-weight: 600; }
+  .gh .why { font-size: 15px; margin-top: 4px; overflow-wrap: anywhere; }
+  .gh .gate { font-size: 13px; margin-top: 8px; padding: 6px 10px; border-left: 2px solid var(--warm); background: color-mix(in oklab, var(--warm) 10%, white); border-radius: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--surface); color: var(--muted); }
+  .chip.on { background: color-mix(in oklab, var(--warm) 14%, white); color: var(--warm); font-weight: 600; }
+  .ghist { display: flex; flex-direction: column; }
+  .ghist .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px dashed var(--hair); }
+  .ghist .row:first-child { border-top: 0; }
+  .ghist .when { color: var(--muted); font-size: 14px; }
+  .ghist .when b { display: block; color: var(--ink); font-size: 14px; font-weight: 600; }
+  .bubble { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid var(--hair); background: #fff; }
+  .comp { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .comp th { text-align: left; font-weight: 500; color: var(--muted); font-size: 13px; padding: 6px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+  .comp td { padding: 10px 8px; border-bottom: 1px solid var(--hair); vertical-align: middle; }
+  .comp tr:last-child td { border-bottom: 0; }
+  .comp .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .comp th.num { text-align: right; }
+  .comp .grp td { background: var(--surface); color: var(--muted); font-size: 12.5px; padding: 4px 8px; }
+  .comp .nm small { display: block; color: var(--muted); font-size: 12px; }
+  .comp .u { font-size: 12px; color: var(--muted); margin-left: 3px; }
+  .meter { position: relative; height: 8px; border-radius: 4px; min-width: 120px; opacity: .28;
+           background: linear-gradient(90deg, var(--z0) 0 25%, var(--z1) 25% 45%, var(--z2) 45% 55%, var(--z3) 55% 75%, var(--z4) 75% 100%); }
+  .meterbox { position: relative; }
+  .meterbox .pin { position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: var(--ink); }
+  .zl { font-size: 12px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; color: #fff; }
+  .gmini .sub { color: var(--muted); font-size: 13px; }
+  .more { margin-top: 28px; border: 1px solid var(--hair); border-radius: var(--radius); padding: 10px 16px; }
+  .more > summary { cursor: pointer; font-weight: 650; font-size: 16px; }
+  .remind .rl { padding: 6px 0; border-top: 1px dashed var(--hair); }
+  .remind .rl:first-of-type { border-top: 0; }
+  .remind .rl.today { font-weight: 650; }
+  .exp-note { font-size: 12px; color: var(--muted); margin-left: 8px; font-weight: 400; }
+  @media (max-width: 820px) { .gh { grid-template-columns: minmax(0, 1fr); } }
   table.ops { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px; }
   table.ops th { text-align: left; color: var(--muted); font-weight: 500; font-size: 13px; padding: 6px 10px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
   table.ops td { padding: 8px 10px; border-bottom: 1px solid var(--hair); vertical-align: top; }
@@ -571,7 +617,173 @@ function ovCard(key, badgeText, tiles, build, footNote) {
 }
 function noTrend(a) { a.appendChild(el("div", "note", "无走势数据")); }
 
+
+/* ================= liquidity gauge ================= */
+var ZONES = [
+  { lo: 0, hi: 25, name: "极度紧张", c: "var(--z0)" },
+  { lo: 25, hi: 45, name: "偏紧", c: "var(--z1)" },
+  { lo: 45, hi: 55, name: "中性", c: "var(--z2)" },
+  { lo: 55, hi: 75, name: "偏松", c: "var(--z3)" },
+  { lo: 75, hi: 100, name: "极度宽松", c: "var(--z4)" }
+];
+function zoneOf(v) { for (var i = 0; i < ZONES.length; i++) if (v < ZONES[i].hi || i === ZONES.length - 1) return ZONES[i]; }
+var SVGNS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs, text) {
+  var e = document.createElementNS(SVGNS, tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined && text !== null) e.textContent = text;
+  return e;
+}
+function gpt(cx, cy, r, v) { var a = Math.PI * (1 - v / 100); return [cx + r * Math.cos(a), cy - r * Math.sin(a)]; }
+function garc(cx, cy, r0, r1, v0, v1) {
+  var a = gpt(cx, cy, r1, v0), b = gpt(cx, cy, r1, v1), c = gpt(cx, cy, r0, v1), d = gpt(cx, cy, r0, v0);
+  return "M" + a + " A" + r1 + " " + r1 + " 0 0 1 " + b + " L" + c + " A" + r0 + " " + r0 + " 0 0 0 " + d + " Z";
+}
+function gaugeSvg(value, opts) {
+  opts = opts || {};
+  var mini = !!opts.mini, W = 420, H = mini ? 250 : 315, cx = 210, cy = 215, r1 = 200, r0 = mini ? 140 : 128;
+  var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "流动性指数 " + value });
+  var z = zoneOf(value);
+  ZONES.forEach(function (Z) {
+    var on = Z === z;
+    svg.appendChild(svgEl("path", { d: garc(cx, cy, r0, r1, Z.lo + 0.4, Z.hi - 0.4), fill: on ? Z.c : "var(--surface)", stroke: "#fff", "stroke-width": 2 }));
+    if (!mini) {
+      var mid = (Z.lo + Z.hi) / 2, q = gpt(cx, cy, (r0 + r1) / 2, mid), rot = 90 - 180 * (1 - mid / 100);
+      svg.appendChild(svgEl("text", { x: q[0], y: q[1], "text-anchor": "middle", "dominant-baseline": "middle",
+        "class": "seg-label" + (on ? " on" : ""), transform: "rotate(" + rot + " " + q[0] + " " + q[1] + ")" }, Z.name));
+    }
+  });
+  if (!mini) [0, 25, 50, 75, 100].forEach(function (t) {
+    var q = gpt(cx, cy, r0 - 16, t);
+    svg.appendChild(svgEl("text", { x: q[0], y: q[1] + 4, "text-anchor": "middle", "class": "tick" }, String(t)));
+  });
+  var tip = gpt(cx, cy, r0 - 4, value), b1 = gpt(cx, cy, 9, value + 50), b2 = gpt(cx, cy, 9, value - 50);
+  svg.appendChild(svgEl("path", { d: "M" + tip + " L" + b1 + " L" + b2 + " Z", fill: "var(--ink)" }));
+  svg.appendChild(svgEl("circle", { cx: cx, cy: cy, r: 11, fill: "var(--ink)" }));
+  if (!mini) {
+    svg.appendChild(svgEl("text", { x: cx, y: cy + 62, "text-anchor": "middle", "class": "val" }, String(value)));
+    svg.appendChild(svgEl("text", { x: cx, y: cy + 90, "text-anchor": "middle", "class": "vlab", fill: z.c }, z.name));
+  } else {
+    svg.appendChild(svgEl("text", { x: cx, y: cy + 38, "text-anchor": "middle", "class": "val" }, String(value)));
+  }
+  var host = el("div", "gauge" + (mini ? " mini" : ""));
+  host.appendChild(svg);
+  return host;
+}
+function gaugeOk(g) { return !!g && isNum(g.value); }
+function renderGaugeHero(p) {
+  var G = DATA.liquidity_index;
+  var card = el("div", "card gh");
+  if (!gaugeOk(G)) {
+    card.style.display = "block";
+    card.appendChild(el("div", "empty-note", "流动性指数：数据不足"));
+    p.appendChild(card); return;
+  }
+  var left = el("div");
+  add(left, el("h2", null, "流动性指数"), el("p", "q", "现在市场的钱是松还是紧？"), gaugeOk(G) ? gaugeSvg(G.value) : null,
+    el("div", "why", G.reason || ""));
+  var chips = el("div", "chips");
+  (Array.isArray(G.combos) ? G.combos : []).filter(Boolean).forEach(function (c) {
+    chips.appendChild(el("span", "chip" + (c.on ? " on" : ""), (c.name || DASH) + " · " + (c.on ? "触发 " + c.met + "/" + c.of : "未触发")));
+  });
+  if (chips.childNodes.length) left.appendChild(chips);
+  var notes = G.gate && Array.isArray(G.gate.notes) ? G.gate.notes : [];
+  notes.forEach(function (n) { left.appendChild(el("div", "gate", n)); });
+  var ago = G.ago || {}, hist = el("div", "ghist");
+  [["上一交易日", ago.prev], ["1 周前", ago.w1], ["1 个月前", ago.m1], ["1 年前", ago.y1]].forEach(function (h) {
+    var has = isNum(h[1]), z = has ? zoneOf(h[1]) : null, row = el("div", "row");
+    var w = el("div", "when", h[0]), b = el("b", null, has ? z.name : DASH);
+    if (has) b.style.color = z.c;
+    w.appendChild(b);
+    var bub = el("div", "bubble", has ? String(h[1]) : DASH);
+    if (has) { bub.style.borderColor = z.c; bub.style.color = z.c; }
+    add(row, w, bub); hist.appendChild(row);
+  });
+  add(card, left, hist);
+  p.appendChild(card);
+}
+function fmtGaugeChg(v, unit) {
+  if (!isNum(v)) return DASH;
+  return unit === "%" ? fmtSigned(v, 2) + "%" : fmtSigned(v, 0) + "bp";
+}
+function renderGaugeComponents(p) {
+  var G = DATA.liquidity_index, comps = G && Array.isArray(G.components) ? G.components.filter(Boolean) : [];
+  if (!gaugeOk(G) && !comps.length) return;
+  secTitle(p, "构成指标", "分项得分越高越宽松");
+  var card = el("div", "card tbl-wrap"), t = el("table", "comp"), thead = el("thead"), tr = el("tr");
+  [["指标", ""], ["最新", "num"], ["近 5 日", "num"], ["分项得分", ""], ["得分", "num"]].forEach(function (h) { tr.appendChild(el("th", h[1], h[0])); });
+  thead.appendChild(tr); t.appendChild(thead);
+  var tb = el("tbody");
+  [["domestic", "国内"], ["external", "外部"], ["ref", "参考（不计分）"]].forEach(function (g) {
+    var rows = comps.filter(function (c) { return c.group === g[0]; });
+    if (!rows.length) return;
+    var gr = el("tr", "grp"), gd = el("td", null, g[1]); gd.colSpan = 5; gr.appendChild(gd); tb.appendChild(gr);
+    rows.forEach(function (c) {
+      var r = el("tr"), nm = el("td", "nm", c.name || DASH);
+      if (c.hint) nm.appendChild(el("small", null, c.hint));
+      var vt = el("td", "num", isNum(c.value) ? fmtNum(c.value, decFor(c.unit, c.value)) : DASH);
+      if (isNum(c.value) && c.unit) vt.appendChild(el("span", "u", c.unit));
+      var ch = el("td", "num " + dirClass(c.chg5), fmtGaugeChg(c.chg5, c.chg5_unit));
+      var mt = el("td"), st = el("td", "num");
+      if (c.scored && isNum(c.score)) {
+        var z = zoneOf(c.score), box = el("div", "meterbox"), pin = el("div", "pin");
+        pin.style.left = Math.max(0, Math.min(100, c.score)) + "%";
+        add(box, el("div", "meter"), pin); mt.appendChild(box);
+        var lab = el("span", "zl", c.score + " " + z.name); lab.style.background = z.c; st.appendChild(lab);
+      } else {
+        mt.textContent = DASH; mt.className = "muted";
+        st.textContent = DASH;
+      }
+      add(r, nm, vt, ch, mt, st); tb.appendChild(r);
+    });
+  });
+  t.appendChild(tb); card.appendChild(t); p.appendChild(card);
+}
+function expiryNote(kind) {
+  var cal = DATA.calendar, today = cal && Array.isArray(cal.today) ? cal.today : [];
+  var hit = today.filter(function (e) { return e && e.kind === kind; }).length > 0;
+  if (!hit) return "";
+  return kind === "etf_option" ? "当天为 ETF 期权到期日" : kind === "index" ? "当天为股指交割日" : "";
+}
+function expiryNoteFor(kinds) {
+  for (var i = 0; i < kinds.length; i++) { var t = expiryNote(kinds[i]); if (t) return t; }
+  return "";
+}
+function renderReminders(p) {
+  var cal = DATA.calendar, up = cal && Array.isArray(cal.upcoming) ? cal.upcoming.filter(Boolean) : [];
+  if (!up.length) return;
+  var todayKeys = (Array.isArray(cal.today) ? cal.today : []).filter(Boolean).map(function (e) { return e.date + "|" + e.market + "|" + e.name; });
+  secTitle(p, "近期提醒", "未来 5 个交易日内的期货、期权到期日");
+  var card = el("div", "card remind");
+  up.forEach(function (e) {
+    var isToday = todayKeys.indexOf(e.date + "|" + e.market + "|" + e.name) >= 0;
+    var d = typeof e.date === "string" && /^\d{8}$/.test(e.date) ? new Date(+e.date.slice(0, 4), +e.date.slice(4, 6) - 1, +e.date.slice(6, 8)) : null;
+    var wk = d ? "（周" + "日一二三四五六".charAt(d.getDay()) + "）" : "";
+    var row = el("div", "rl" + (isToday ? " today" : ""),
+      fmtDay(e.date) + wk + " " + (e.market || "") + " " + (e.name || "") + (e.quarterly ? "（季月）" : ""));
+    if (isToday) row.appendChild(el("span", "exp-note", "今天：成交与尾盘波动可能放大"));
+    card.appendChild(row);
+  });
+  p.appendChild(card);
+}
+function ovLiquidityGauge() {
+  var G = DATA.liquidity_index, z = zoneOf(G.value), ago = G.ago || {};
+  var a = el("a", "card ov gmini t-" + toneOf("liquidity"));
+  a.href = "#liquidity";
+  var h = el("div", "ov-head"), bd = el("span", "zl", z.name); bd.style.background = z.c;
+  add(h, el("h2", null, "流动性"), bd);
+  var reason = String(G.reason || "").replace(/（[^（）]*）\s*$/, "");
+  var parts = [reason];
+  if (isNum(ago.prev)) parts.push("较上一交易日 " + fmtSigned(G.value - ago.prev, 0));
+  if (isNum(ago.w1)) parts.push("较 1 周前 " + fmtSigned(G.value - ago.w1, 0));
+  var f = el("div", "ov-foot");
+  add(f, el("span", null, ""), el("span", "go", "查看详情 →"));
+  add(a, h, gaugeSvg(G.value, { mini: true }), el("div", "sub", parts.filter(Boolean).join(" · ")), f);
+  return a;
+}
+
 function ovLiquidity() {
+  if (gaugeOk(DATA.liquidity_index)) return ovLiquidityGauge();
   var L = DATA.liquidity || {}, dom = L.domestic || [];
   var to = byKey(dom, "turnover"), mg = byKey(dom, "margin"), fed = byKey(L.external, "fed_net");
   return ovCard("liquidity", (L.vote || {}).label, [cardTile(to), cardTile(mg), cardTile(fed)], function (a) {
@@ -611,7 +823,12 @@ function ovTeam() {
   ], function (a) {
     if (!sparkBox(a, cum, C.up, "亿元", 0)) noTrend(a);
     var sp = watchSpikes();
-    if (sp.length) a.appendChild(el("div", "watch-line", "观察池天量：" + sp.slice(0, 2).map(spikeText).join("；") + (sp.length > 2 ? " 等 " + sp.length + " 只" : "")));
+    if (sp.length) {
+      var wl = el("div", "watch-line", "观察池天量：" + sp.slice(0, 2).map(spikeText).join("；") + (sp.length > 2 ? " 等 " + sp.length + " 只" : ""));
+      var wn = expiryNoteFor(["etf_option", "index"]);
+      if (wn) wl.appendChild(el("span", "exp-note", wn));
+      a.appendChild(wl);
+    }
   }, pool + " ETF 累计净申赎，近 " + cum.length + " 日");
 }
 function ovRetail() {
@@ -633,6 +850,7 @@ function renderHome(p) {
   var g = el("div", "ov-grid");
   [ovLiquidity, ovSector, ovTeam, ovRetail].forEach(function (fn) { guard(g, function (box) { box.appendChild(fn()); }); });
   p.appendChild(g);
+  guard(p, renderReminders);
 }
 
 /* ================= liquidity ================= */
@@ -801,18 +1019,24 @@ function renderNews(parent, news) {
 }
 function renderLiquidity(p) {
   var L = DATA.liquidity || {};
-  guard(p, function () { heroBand(p, "liquidity"); });
-  guard(p, renderIndices);
-  guard(p, renderAssets);
-  guard(p, function () { secTitle(p, "国内流动性投票", "四个信号各投松 / 平 / 紧"); renderVote(p, L.vote); });
-  guard(p, function () { secTitle(p, "国内 · 场内资金"); p.appendChild(cardGrid(L.domestic)); });
-  guard(p, function () { secTitle(p, "国内 · 宏观 / 价格"); p.appendChild(cardGrid(L.macro)); });
+  guard(p, function () { if (DATA.liquidity_index) renderGaugeHero(p); else heroBand(p, "liquidity"); });
+  guard(p, renderGaugeComponents);
+  guard(p, function () { secTitle(p, "场内资金", "四个信号各投松 / 平 / 紧"); renderVote(p, L.vote); p.appendChild(cardGrid(L.domestic)); });
   guard(p, function () {
-    secTitle(p, "外围 · 美元流动性与加减息", "仅作参考，不参与国内投票；FRED 周频数据滞后数日属正常");
-    p.appendChild(cardGrid(L.external));
-    renderRate(p, L.rate_expect);
+    var d = el("details", "more"), skip = ["m1", "m2", "sf", "fed_net", "reserves", "tga", "rrp"];
+    var keep = function (c) { return c && skip.indexOf(c.key) < 0; };
+    d.appendChild(el("summary", null, "更多数据"));
+    d.appendChild(el("div", "sec-title", "国内 · 宏观 / 价格"));
+    d.appendChild(cardGrid((L.macro || []).filter(keep)));
+    var ex = el("div", "sec-title", "外围 · 美元流动性与加减息");
+    ex.appendChild(el("small", null, "仅作参考；FRED 周频数据滞后数日属正常"));
+    d.appendChild(ex);
+    d.appendChild(cardGrid((L.external || []).filter(keep)));
+    renderRate(d, L.rate_expect);
+    d.appendChild(el("div", "sec-title", "政策工具操作"));
+    renderPolicyOps(d, DATA.policy_ops);
+    p.appendChild(d);
   });
-  guard(p, function () { secTitle(p, "政策工具操作", "手工维护 data/policy_ops.csv，不从新闻自动提取金额"); renderPolicyOps(p, DATA.policy_ops); });
   if (!DATA.news || DATA.news.status !== "disabled") {          /* 新闻暂时下线时整块不显示 */
     guard(p, function () { secTitle(p, "新闻时间线", "最近 7 个自然日 · 只留影响资金流动性的标题"); renderNews(p, DATA.news); });
   }
@@ -1049,7 +1273,7 @@ function fingerprintCard(body) {
     add(li, nm, vl); ul.appendChild(li);
   });
   var T = F.tail || {}, li = el("li"), nm = el("span", "nm", "尾盘占比（510300 代表）");
-  nm.appendChild(el("small", null, "仅 510300 一只 14:30 后成交 ÷ 全天"));
+  nm.appendChild(el("small", null, "代表 ETF：510300"));
   var vl = el("span", "vl");
   if ((!isNum(T.today) && !isNum(T.yday)) || T.source === "无分钟数据") { vl.className = "vl muted"; vl.textContent = "无分钟数据"; }
   else {
@@ -1057,6 +1281,8 @@ function fingerprintCard(body) {
     vl.appendChild(el("span", "y", "昨 " + (isNum(T.yday) ? fmtNum(T.yday, 1) + "%" : DASH)));
     if (T.source) vl.appendChild(el("span", "y", "（" + T.source + "）"));
   }
+  var tn = expiryNoteFor(["index"]);
+  if (tn) nm.appendChild(el("small", null, tn));
   add(li, nm, vl); ul.appendChild(li);
   card.appendChild(ul);
 
@@ -1116,7 +1342,9 @@ function renderTeam(p) {
   guard(p, function () { secTitle(p, "ETF 净申赎", pool + ((DATA.meta || {}).team_pool ? " · 159919 为深市、份额晚一天披露，最新一日暂按 5 只合计" : " · 三种视图共用同一日期轴")); teamChart(p, E, pool); });
   guard(p, function () {
     var W = DATA.watch || {};
-    secTitle(p, "观察池天量", (isNum(W.count) ? W.count + " 只" : "观察池") + " · 成交额 ≥ 20 日均 3 倍，或净申赎 ≥ 60 日均 5 倍且 ≥ 10 亿 · 不计入上面的判断");
+    secTitle(p, "观察池天量", (isNum(W.count) ? W.count + " 只" : "观察池") + " · 不计入上面的判断");
+    var wn = expiryNoteFor(["etf_option", "index"]);
+    if (wn) p.appendChild(el("div", "note-foot", wn));
     renderWatch(p);
   });
   guard(p, function () {
@@ -1265,7 +1493,7 @@ function renderWall(body) {
   });
   secTitle(body, "板块韭菜浓度热力墙", (Cn.mode || "") + (Cn.date ? " · " + fmtDay(Cn.date) : ""));
   var card = el("div", "card");
-  card.appendChild(el("p", "wall-intro", "口径：浓度 = Σ(买+卖)(小单+中单)成交额 ÷ Σ(买+卖)(全部四档)成交额 × 100，按板块内全部个股金额加权（非简单平均）；黑色竖刻度 = 昨日值。"));
+  card.appendChild(el("p", "wall-intro", "黑色竖刻度 = 昨日值"));
   var mk = el("p", "wall-intro");
   add(mk, document.createTextNode("全市场韭菜浓度 "), el("b", null, isNum(Cn.market) ? fmtNum(Cn.market, 2) + "%" : DASH),
     document.createTextNode("（昨 " + (isNum(Cn.market_yday) ? fmtNum(Cn.market_yday, 2) + "%" : DASH) + "）"));

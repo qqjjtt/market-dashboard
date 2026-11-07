@@ -36,3 +36,14 @@ def test_render_requires_placeholder(tmp_path):
     t.write_text("/*__DATA__*/null /*__DATA__*/null", encoding="utf-8")
     with pytest.raises(ValueError):
         render(str(t), {}, str(tmp_path / "o.html"))
+
+
+def test_no_method_text_in_template():
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "template.html").read_text(encoding="utf-8")
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"<!--.*?-->", "", src, flags=re.S)
+    src = re.sub(r"(?m)^\s*//.*$", "", src)
+    for bad in ("σ", "标准差", "÷", "Σ"):
+        assert bad not in src, bad

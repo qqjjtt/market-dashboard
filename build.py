@@ -346,7 +346,7 @@ def _liquidity(c: Ctx) -> dict:
                 down = int(lc["down"])
     inst = _inst_series(src, c.days[-INST_SPARK_DAYS:])
 
-    ratio_note = f"÷20日均 {turnover:.2f}" if turnover is not None else ""
+    ratio_note = f"较 20 日均 {turnover:.2f} 倍" if turnover is not None else ""
     domestic = [
         _mk_card("turnover", "全市场成交额", totals, "亿元", change="pct", note=ratio_note),
         _mk_card("margin", "两融余额", margin, "亿元"),
