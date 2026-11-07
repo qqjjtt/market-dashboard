@@ -1374,7 +1374,7 @@ function renderTeam(p) {
   guard(p, function () {
     var H = DATA.holdings;
     if (!H || !Array.isArray(H.rows) || !H.rows.length) return;
-    secTitle(p, "汇金持仓估算", "按 2025 年末披露份额估算，误差可能较大");
+    secTitle(p, "汇金持仓估算", "按 2025 年末披露份额估算，并用 2026 年半年报、三季报的披露上限校准，误差可能较大");
     renderHoldings(p, H);
   });
   guard(p, function () {

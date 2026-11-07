@@ -290,3 +290,19 @@ def test_estimate_holdings_uses_last_share_on_or_before_base_and_ffills_close():
 def test_estimate_holdings_empty():
     out = estimate_holdings(pd.Series(dtype=float), pd.Series(dtype=float), 100.0, "20251231")
     assert out.empty and list(out.columns) == ["total", "est", "close", "value"]
+
+
+def test_estimate_holdings_caps_from_disclosure():
+    days = ["20251231", "20260630", "20260701", "20260930", "20261008"]
+    share = pd.Series([500.0, 500.0, 500.0, 500.0, 520.0], index=days)
+    close = pd.Series([2.0] * 5, index=days)
+    out = estimate_holdings(share, close, 300.0, "20251231", caps={"20260630": 40.0, "20260930": 25.0})
+    # 份额不变时估算保持 300，直到 6/30 被披露上限压到 40、9/30 压到 25；之后的净申购照常累加
+    assert list(out["est"]) == [300.0, 40.0, 40.0, 25.0, 45.0]
+
+
+def test_estimate_holdings_cap_date_not_trading_day():
+    days = ["20251231", "20260629", "20260701"]
+    share = pd.Series([500.0, 500.0, 500.0], index=days)
+    out = estimate_holdings(share, pd.Series([1.0] * 3, index=days), 300.0, "20251231", caps={"20260630": 40.0})
+    assert list(out["est"]) == [300.0, 300.0, 40.0]  # 6/30 无数据 → 在之后第一个份额日生效

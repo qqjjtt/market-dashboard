@@ -870,7 +870,8 @@ def _holdings(shares: dict, closes: dict, names: dict, D: str, prev_day: str | N
         px = _ser(closes.get(code), "trade_date", "close")
         if not px.empty:
             px = px[px.index <= D]
-        est = me.estimate_holdings(sh, px, row["base"], config.HUIJIN_BASE_DATE)
+        est = me.estimate_holdings(sh, px, row["base"], config.HUIJIN_BASE_DATE,
+                                   caps=config.HUIJIN_CAPS.get(code))
         if est.empty:
             continue
         last = est.iloc[-1]
