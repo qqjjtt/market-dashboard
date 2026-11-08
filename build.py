@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 import config
+import econ_calendar
 import expiry
 import metrics_etf as me
 import metrics_gauge as mg
@@ -159,6 +160,7 @@ class Ctx:
     now: datetime = None
     exact_limits: dict = field(default_factory=dict)   # trade_date -> {"up","down"}（limit_list_d 精确值），每日只取一次
     shared: dict = field(default_factory=dict)  # 面板间复用已取到的数据（m1 / sf_yoy / fed / cal），避免重复调接口
+    eco_path: str | None = None   # 财经日历存档路径；None 不读写文件
 
 
 # ------------------------------------------------------------------ 日期
@@ -504,6 +506,28 @@ def _gauge_hint(spec: dict, D: str) -> str:
         if rows:
             return f"{rows[-1][2]} {rows[-1][1]:g}%"
     return spec["hint"]
+
+
+def _eco_calendar(c: Ctx) -> dict:
+    """财经日历：读存档 → 分段取数 → 写存档 → payload。事件供 Task 4 放进 c.shared["eco_events"]。"""
+    today = c.now.astimezone(SH).strftime("%Y%m%d")
+    start = _shift(today, -config.ECO_CAL_KEEP_DAYS)
+    store = econ_calendar.load_store(c.eco_path) if c.eco_path else {"covered_from": None, "events": []}
+    had_store = bool(store["events"])
+    new, _n = econ_calendar.fetch_events(c.src, today, store, config.ECO_CAL_MAX_CALLS,
+                                         backfill=c.eco_path is not None)
+    if c.eco_path:
+        try:
+            econ_calendar.save_store(c.eco_path, new)
+        except Exception as e:  # noqa: BLE001
+            log.warning("财经日历存档写入失败（%s）", type(e).__name__)
+    events = [e for e in new["events"] if e["date"] >= start]
+    if new["_refresh_ok"]:
+        status = "ok"
+    else:
+        status = "stale" if (had_store or events) else "failed"
+    c.shared["eco_events"] = events
+    return {"today": today, "start": start, "events": events, "status": status}
 
 
 def _liquidity_index(c: Ctx) -> dict:
@@ -1086,21 +1110,22 @@ def _news(c: Ctx, date: str) -> dict:
 
 # ------------------------------------------------------------------ 组装
 
-def collect(src, fred, date: str, round_start: str | None, demo: bool, now: datetime | None = None) -> dict:
+def collect(src, fred, date: str, round_start: str | None, demo: bool, now: datetime | None = None,
+            eco_path: str | None = None) -> dict:
     """取数并组装 payload（契约见计划「payload 契约」）。任何局部失败只降级，不抛异常。"""
     now = (now or datetime.now(SH)).astimezone(SH)
     handler = _WarnCollector()
     root = logging.getLogger()
     root.addHandler(handler)
     try:
-        payload = _collect(src, fred, date, round_start, demo, now)
+        payload = _collect(src, fred, date, round_start, demo, now, eco_path)
     finally:
         root.removeHandler(handler)
     payload["meta"]["warnings"] = list(handler.messages)
     return payload
 
 
-def _collect(src, fred, date, round_start, demo, now) -> dict:
+def _collect(src, fred, date, round_start, demo, now, eco_path=None) -> dict:
     daily: dict = {}
     D = _resolve_trade_day(src, date, daily, now)
     n_days = config.TEMP_WINDOW + config.AMOUNT_MA + 2
@@ -1121,8 +1146,11 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
     basic = _fetch("股票列表", src.stock_basic)
     names = dict(zip(basic["ts_code"], basic["name"])) if isinstance(basic, pd.DataFrame) and not basic.empty else {}
     flags = _safe("涨跌停判定", lambda: {d: ms.limit_flags(df, names) for d, df in daily.items()}, dict)
-    c = Ctx(src=src, fred=fred, D=D, days=days, daily=daily, names=names, flags=flags, now=now)
+    c = Ctx(src=src, fred=fred, D=D, days=days, daily=daily, names=names, flags=flags, now=now, eco_path=eco_path)
 
+    _today = now.strftime("%Y%m%d")
+    eco = _safe("财经日历", lambda: _eco_calendar(c), lambda: {
+        "today": _today, "start": _shift(_today, -config.ECO_CAL_KEEP_DAYS), "events": [], "status": "failed"})
     liquidity = _safe("流动性", lambda: _liquidity(c), lambda: {
         "domestic": [], "macro": [], "external": [],
         "vote": ml.liquidity_vote(None, None, None, None), "rate_expect": ml.rate_expectation(None, None)})
@@ -1155,6 +1183,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
         "liquidity": liquidity,
         "liquidity_index": li,
         "calendar": calendar,
+        "eco_calendar": eco,
         "policy_ops": policy,
         "news": news,
         "sector_flow": sector,
@@ -1200,6 +1229,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--demo", action="store_true", help="使用随机模拟数据")
     ap.add_argument("--archive", metavar="DIR",
                     help="另存当天数据为 DIR/<交易日 YYYY-MM-DD>.json，同一交易日覆盖（演示数据不存）")
+    ap.add_argument("--eco-cal", dest="eco_cal", default="data/eco_cal.json", metavar="PATH",
+                    help="财经日历存档路径，默认 data/eco_cal.json（演示数据不读写）")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -1210,7 +1241,8 @@ def main(argv: list[str] | None = None) -> int:
         log.error("数据源初始化失败（%s: %s）", type(e).__name__, _short(e))
         return 2
     try:
-        payload = collect(src, fred, date, args.round_start, args.demo)
+        payload = collect(src, fred, date, args.round_start, args.demo,
+                          eco_path=None if args.demo else args.eco_cal)
     except FatalBuildError as e:
         log.error("整体取数失败，不生成页面（保留上一份）：%s", _scrub(str(e)))
         return 3

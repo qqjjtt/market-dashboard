@@ -1,4 +1,7 @@
 """财经日历：白名单匹配、清洗、去重、下次公布。纯逻辑，无 I/O、无网络。"""
+import json
+import logging
+import os
 import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -6,6 +9,7 @@ from zoneinfo import ZoneInfo
 import config
 
 SH = ZoneInfo("Asia/Shanghai")
+log = logging.getLogger(__name__)
 
 _PERIOD_RE = re.compile(r"^(一|二|三|四|五|六|七|八|九|十|十一|十二)月$|^第[一二三四]季度$")
 _TIME_RE = re.compile(r"^(\d{2}):(\d{2})$")
@@ -55,8 +59,11 @@ def normalize(rows):
         if it is None:
             continue
         period = period_of(name)
+        date = str(r.get("date") or "")
+        if not (len(date) == 8 and date.isdigit()):
+            continue
         out.append({
-            "date": str(r.get("date") or ""),
+            "date": date,
             "time": clean_time(r.get("time"), it["kind"]),
             "region": it["region"],
             "item": it["key"],
@@ -139,3 +146,119 @@ def format_next(date, time):
     d = _day(date)
     s = f"下次公布：{d.month}/{d.day} 周{_WEEKDAYS[d.weekday()]}"
     return f"{s} {time}" if time else f"{s}（时间待定）"
+
+
+# ---------------------------------------------------------------- 存档与分段取数
+
+def _empty_store():
+    return {"covered_from": None, "events": []}
+
+
+def load_store(path):
+    if not os.path.exists(path):
+        return _empty_store()
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        cf, evs = d.get("covered_from"), d["events"]
+        if not isinstance(evs, list) or not all(isinstance(e, dict) for e in evs):
+            raise ValueError("events")
+        if cf is not None and not (isinstance(cf, str) and len(cf) == 8 and cf.isdigit()):
+            raise ValueError("covered_from")
+        return {"covered_from": cf, "events": evs}
+    except Exception:  # noqa: BLE001
+        log.warning("财经日历存档无法读取，已从空数据开始")
+        return _empty_store()
+
+
+def save_store(path, store):
+    d = os.path.dirname(os.path.abspath(path))
+    os.makedirs(d, exist_ok=True)
+    evs = sorted(store["events"], key=lambda e: (e["date"], e["time"] or "99:99", e["region"], e["item"]))
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"covered_from": store.get("covered_from"), "events": evs}, f, ensure_ascii=False, indent=0)
+    os.replace(tmp, path)
+
+
+def _shift(d, n):
+    return (_day(d) + timedelta(days=n)).strftime("%Y%m%d")
+
+
+class _Fetcher:
+    def __init__(self, src, max_calls):
+        self.src, self.max_calls = src, max_calls
+        self.calls = 0
+        self.rows = []
+        self.error = None     # 异常类型名
+        self.out_of_budget = False
+
+    def fetch(self, country, s, e):
+        """取 [s, e]（含）。返回是否完整取到；预算用完或出错时返回 False 并停止后续。"""
+        if self.error or self.out_of_budget:
+            return False
+        if self.calls >= self.max_calls:
+            self.out_of_budget = True
+            return False
+        self.calls += 1
+        try:
+            df = self.src.eco_cal(s, e, country)
+        except Exception as ex:  # noqa: BLE001
+            self.error = type(ex).__name__
+            return False
+        n = 0 if df is None else len(df)
+        if n:
+            self.rows.extend(df.to_dict("records"))
+        if n >= config.ECO_CAL_ROW_LIMIT:
+            span = (_day(e) - _day(s)).days
+            if span < 1:
+                log.warning("财经日历 %s 单日返回达 %d 行上限，可能被截断", s, config.ECO_CAL_ROW_LIMIT)
+                return True
+            mid = _shift(s, span // 2)
+            left = self.fetch(country, s, mid)
+            return self.fetch(country, _shift(mid, 1), e) and left
+        return True
+
+
+def fetch_events(src, today, store, max_calls, backfill=True):
+    """刷新窗口优先，再从新到旧回填。返回 (新 store, 调用次数)。
+    新 store 带临时键 _refresh_ok（刷新窗口是否全部取到），save_store 不会写出它。"""
+    f = _Fetcher(src, max_calls)
+    chunk_days = config.ECO_CAL_CHUNK_DAYS
+    refresh_ok = True
+    r_start, r_end = _shift(today, -config.ECO_CAL_PAST_DAYS), _shift(today, config.ECO_CAL_FUTURE_DAYS)
+    for country, size in chunk_days.items():
+        s = r_start
+        while s <= r_end:
+            e = min(r_end, _shift(s, size - 1))
+            if not f.fetch(country, s, e):
+                refresh_ok = False
+                break
+            s = _shift(e, 1)
+
+    covered = store.get("covered_from")
+    target = _shift(today, -config.ECO_CAL_KEEP_DAYS)
+    if backfill and refresh_ok and (covered is None or covered > target):
+        top = r_start if covered is None else min(covered, r_start)
+        prog = {c: top for c in chunk_days}
+        while max(prog.values()) > target:
+            c = max(prog, key=lambda k: prog[k])       # 落后（起点更近）的一方先取
+            e = _shift(prog[c], -1)
+            s = max(target, _shift(e, -(chunk_days[c] - 1)))
+            if not f.fetch(c, s, e):
+                break
+            prog[c] = s
+        new_cov = max(prog.values())
+        if new_cov < top:
+            covered = new_cov
+        if max(prog.values()) > target and not f.error:
+            log.info("财经日历回填未完成（预算 %d 次用完），下次构建继续", max_calls)
+
+    if f.error:
+        log.warning("财经日历取数中断（%s），已用存档补齐", f.error)
+    elif not refresh_ok:
+        log.warning("财经日历取数次数用完（%d 次），刷新窗口未取全，已用存档补齐", max_calls)
+    fresh = normalize(f.rows)
+    keep = target
+    events = [e for e in merge(store.get("events", []), fresh) if e["date"] >= keep]
+    return {"covered_from": covered, "events": events, "_refresh_ok": refresh_ok}, f.calls

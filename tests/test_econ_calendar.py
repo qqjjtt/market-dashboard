@@ -129,3 +129,136 @@ def test_next_release_pending_time_counts_until_day_ends():
 def test_format_next():
     assert format_next("20261109", "09:30") == "下次公布：11/9 周一 09:30"
     assert format_next("20261113", None) == "下次公布：11/13 周五（时间待定）"
+
+
+# ---------------------------------------------------------------- Task 3：取数与存档
+import json
+import logging
+
+import pandas as pd
+import pytest
+
+import config
+import econ_calendar as ec
+from sources import RateLimited
+
+TODAY = "20261108"
+_COLS = ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+
+
+def sh(d, n):
+    return (datetime.strptime(d, "%Y%m%d") + __import__("datetime").timedelta(days=n)).strftime("%Y%m%d")
+
+
+class FakeSrc:
+    def __init__(self, rows_for=None, fail_at=None):
+        self.calls = []
+        self.rows_for = rows_for
+        self.fail_at = fail_at
+
+    def eco_cal(self, start, end, country):
+        self.calls.append((start, end, country))
+        if self.fail_at and len(self.calls) == self.fail_at:
+            raise RateLimited("x")
+        rows = self.rows_for(start, end, country) if self.rows_for else []
+        return pd.DataFrame(rows, columns=_COLS)
+
+
+def cpi_row(date):
+    return (date, "09:30", "中国", "中国CPI年率(%)(年度)(十月)", "1.0%", "0.9%", "1.0%")
+
+
+def test_fetch_window_chunks():
+    src = FakeSrc()
+    store, n = ec.fetch_events(src, TODAY, {"covered_from": None, "events": []}, 1000)
+    assert n == len(src.calls)
+    for country, size in config.ECO_CAL_CHUNK_DAYS.items():
+        cs = sorted((s, e) for s, e, c in src.calls if c == country)
+        assert all((ec._day(e) - ec._day(s)).days + 1 <= size for s, e in cs)
+        for (s1, e1), (s2, e2) in zip(cs, cs[1:]):
+            assert s2 == sh(e1, 1)
+        assert cs[0][0] == sh(TODAY, -182)
+        assert cs[-1][1] == sh(TODAY, 60)
+    assert store["covered_from"] == sh(TODAY, -182)
+
+
+def test_fetch_splits_when_truncated(caplog):
+    def rows(start, end, country):
+        if start == sh(TODAY, -14) and country == "中国":
+            return [cpi_row(start)] * config.ECO_CAL_ROW_LIMIT
+        return []
+    src = FakeSrc(rows)
+    with caplog.at_level(logging.WARNING):
+        ec.fetch_events(src, TODAY, {"covered_from": None, "events": []}, 1000, backfill=False)
+    cn = [(s, e) for s, e, c in src.calls if c == "中国"]
+    assert cn[0] == (sh(TODAY, -14), sh(TODAY, 16))
+    # 对半切开，且一直切到单日
+    assert (cn[1][0], cn[1][1]) != cn[0] and cn[1][0] == cn[0][0]
+    assert (sh(TODAY, -14), sh(TODAY, -14)) in cn
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+    # 单日仍 100 行：不再继续切（同一单日只出现一次）
+    assert cn.count((sh(TODAY, -14), sh(TODAY, -14))) == 1
+
+
+def test_fetch_respects_max_calls_backfill_resumes():
+    src = FakeSrc()
+    store, n = ec.fetch_events(src, TODAY, {"covered_from": None, "events": []}, 20)
+    assert n == 20 and len(src.calls) == 20
+    refresh_calls = [c for c in src.calls if c[0] >= sh(TODAY, -14)]
+    assert len(refresh_calls) == 14            # 刷新窗口优先取完
+    cf1 = store["covered_from"]
+    assert cf1 is not None and sh(TODAY, -182) < cf1 <= sh(TODAY, -14)
+    src2 = FakeSrc()
+    store2, _ = ec.fetch_events(src2, TODAY, store, 20)
+    back2 = [c for c in src2.calls if c[1] < sh(TODAY, -14)]
+    assert back2
+    assert max(e for s, e, c in back2) <= cf1
+    assert store2["covered_from"] < cf1
+
+
+def test_fetch_stops_on_error_keeps_partial(caplog):
+    old = ev(item="us_nfp", date="20261001", region="us")
+    def rows(start, end, country):
+        return [cpi_row(start)] if start == sh(TODAY, -14) and country == "中国" else []
+    src = FakeSrc(rows, fail_at=3)
+    with caplog.at_level(logging.WARNING):
+        store, n = ec.fetch_events(src, TODAY, {"covered_from": None, "events": [old]}, 100)
+    assert len(src.calls) == 3
+    assert any("RateLimited" in r.getMessage() and "财经日历" in r.getMessage() for r in caplog.records)
+    items = {(e["item"], e["date"]) for e in store["events"]}
+    assert ("us_nfp", "20261001") in items and ("cn_cpi_yoy", sh(TODAY, -14)) in items
+    assert store["_refresh_ok"] is False
+
+
+def test_load_store_missing_or_corrupt(tmp_path, caplog):
+    empty = {"covered_from": None, "events": []}
+    with caplog.at_level(logging.WARNING):
+        assert ec.load_store(str(tmp_path / "nope.json")) == empty
+    assert not caplog.records
+    for content in ("", "not json", '{"events": 5}'):
+        p = tmp_path / "bad.json"
+        p.write_text(content)
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert ec.load_store(str(p)) == empty
+        assert any("无法读取" in r.getMessage() for r in caplog.records)
+
+
+def test_save_then_load_roundtrip(tmp_path):
+    p = str(tmp_path / "sub" / "e.json")
+    store = {"covered_from": "20260601", "events": [ev(date="20261110"), ev(date="20261101", label="中文")],
+             "_refresh_ok": True}
+    ec.save_store(p, store)
+    got = ec.load_store(p)
+    assert got["covered_from"] == "20260601"
+    assert [e["date"] for e in got["events"]] == ["20261101", "20261110"]
+    assert "_refresh_ok" not in got
+    assert "中文" in open(p, encoding="utf-8").read()
+    assert not (tmp_path / "sub" / "e.json.tmp").exists()
+
+
+def test_normalize_drops_bad_dates():
+    rows = [{"date": "", "time": "09:30", "event": "中国CPI年率(%)(年度)(十月)"},
+            {"date": "2026-11-09", "time": "09:30", "event": "中国CPI年率(%)(年度)(十月)"},
+            {"date": "20261109", "time": "09:30", "event": "中国CPI年率(%)(年度)(十月)"}]
+    assert [e["date"] for e in normalize(rows)] == ["20261109"]

@@ -489,7 +489,7 @@ def _real_run(tmp_path, monkeypatch, *extra):
     """非 demo 模式运行（数据源换成 DemoSource，不联网），返回退出码与输出页路径。"""
     monkeypatch.setattr(build, "_make_sources", lambda demo: (DemoSource(), DemoFred()))
     out = tmp_path / "site" / "i.html"
-    return main(["--out", str(out), "--date", DATE, *extra]), out
+    return main(["--out", str(out), "--date", DATE, "--eco-cal", str(tmp_path / "eco.json"), *extra]), out
 
 
 def test_archive_writes_payload_named_by_trade_date(tmp_path, monkeypatch):
@@ -528,7 +528,8 @@ def test_demo_never_archived(tmp_path):
 def test_total_failure_archives_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(build, "_make_sources", lambda demo: (EmptyDailySource(), DemoFred()))
     out = tmp_path / "i.html"
-    assert main(["--out", str(out), "--date", DATE, "--archive", str(tmp_path / "history")]) == 3
+    assert main(["--out", str(out), "--date", DATE, "--eco-cal", str(tmp_path / "eco.json"),
+                 "--archive", str(tmp_path / "history")]) == 3
     assert not (tmp_path / "history").exists()
 
 
@@ -845,3 +846,52 @@ def test_valuation_margin_blank_when_market_stats_down(tmp_path, monkeypatch):
     _, data = run(tmp_path, MarketStatsBroken(), monkeypatch=monkeypatch)
     assert data["valuation"]["margin"]["verdict"] is None
     assert any("市场流通市值与成交额" in w for w in data["meta"]["warnings"])
+
+
+# ---------------------------------------------------------------- 财经日历
+def test_eco_calendar_payload_demo(tmp_path):
+    _, data = run(tmp_path)
+    eco = data["eco_calendar"]
+    assert eco["status"] == "ok"
+    assert eco["events"]
+    assert all(e["region"] in ("cn", "us") for e in eco["events"])
+    assert not any("外汇储备" in e["label"] or "EIA" in e["label"] for e in eco["events"])
+    assert all(e["date"] >= eco["start"] for e in eco["events"])
+    assert all(e["time"] != "02:38" for e in eco["events"])
+    assert data["calendar"] is not None
+
+
+def _now():
+    return datetime(2026, 11, 8, 10, 0, tzinfo=build.SH)
+
+
+def test_eco_calendar_persists(tmp_path):
+    p = str(tmp_path / "e.json")
+    for _ in range(2):
+        pl = build.collect(DemoSource(), DemoFred(), DATE, None, True, now=_now(), eco_path=p)
+    assert (tmp_path / "e.json").exists()
+    keys = [(e["item"], e["date"]) for e in pl["eco_calendar"]["events"]]
+    assert keys and len(keys) == len(set(keys))
+
+
+def test_eco_calendar_no_path_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    pl = build.collect(DemoSource(), DemoFred(), DATE, None, True, now=_now())
+    assert pl["eco_calendar"]["status"] == "ok"
+    assert not list(tmp_path.iterdir())
+
+
+def test_eco_calendar_source_down_uses_store(tmp_path, monkeypatch):
+    p = str(tmp_path / "e.json")
+    first = build.collect(DemoSource(), DemoFred(), DATE, None, True, now=_now(), eco_path=p)
+
+    def boom(self, *a, **k):
+        raise RuntimeError("down")
+    monkeypatch.setattr(DemoSource, "eco_cal", boom)
+    second = build.collect(DemoSource(), DemoFred(), DATE, None, True, now=_now(), eco_path=p)
+    assert second["eco_calendar"]["status"] == "stale"
+    assert second["eco_calendar"]["events"] == first["eco_calendar"]["events"]
+    assert any("财经日历" in w for w in second["meta"]["warnings"])
+    # 没存档也取不到 → failed
+    third = build.collect(DemoSource(), DemoFred(), DATE, None, True, now=_now(), eco_path=str(tmp_path / "none.json"))
+    assert third["eco_calendar"]["status"] == "failed"
