@@ -53,9 +53,10 @@ def test_build_demo_end_to_end(tmp_path):
     assert [c["key"] for c in liq["domestic"]] == ["turnover", "margin", "main_flow", "limit", "inst"]
     assert [c["key"] for c in liq["macro"]] == [
         "shibor_on", "shibor_1w", "dr007", "dr001_spread", "r007_dr007", "shibor_1y", "m1", "m2", "sf",
-        "bond_fut", "brent"]
+        "cn_cpi", "cn_ppi", "bond_fut", "brent"]
     assert [c["key"] for c in liq["external"]] == [
-        "fed_net", "reserves", "tga", "rrp", "sofr_iorb", "nfci", "hy_oas", "us2y", "us10y", "tips10", "usd",
+        "fed_net", "reserves", "tga", "rrp", "sofr_iorb", "nfci", "hy_oas", "us2y", "us10y", "tips10",
+        "us_cpi", "us_ppi", "us_nfp", "us_unrate", "usd",
         "spx", "ixic", "dji"]
     mac = {c["key"]: c for c in liq["macro"]}
     assert mac["dr001_spread"]["unit"] == "bp" and "隔夜逆回购 1.25%" in mac["dr001_spread"]["note"]
@@ -895,3 +896,59 @@ def test_eco_calendar_source_down_uses_store(tmp_path, monkeypatch):
     # 没存档也取不到 → failed
     third = build.collect(DemoSource(), DemoFred(), DATE, None, True, now=_now(), eco_path=str(tmp_path / "none.json"))
     assert third["eco_calendar"]["status"] == "failed"
+
+
+# ---------------------------------------------------------------- 宏观月度卡片与「下次公布」
+
+NOW = datetime(2026, 11, 8, 20, 0, tzinfo=build.SH)
+
+
+def _collect(src=None, fred=None):
+    return build.collect(src or DemoSource(), fred or DemoFred(), DATE, None, True, now=NOW)
+
+
+def _card(data, panel, key):
+    return next(c for c in data["liquidity"][panel] if c["key"] == key)
+
+
+class _NoUsCpiSource(DemoSource):
+    def eco_cal(self, start, end, country):
+        df = super().eco_cal(start, end, country)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            df = df[~df["event"].str.startswith("美国未季调CPI年率")].reset_index(drop=True)
+        return df
+
+
+class _NoEcoSource(DemoSource):
+    def eco_cal(self, start, end, country):
+        return pd.DataFrame(columns=self._ECO_COLS)
+
+
+def test_macro_cards_monthly(tmp_path):
+    _, data = run(tmp_path)
+    liq = data["liquidity"]
+    cards = [_card(data, "macro", k) for k in ("cn_cpi", "cn_ppi")] + [
+        _card(data, "external", k) for k in ("us_cpi", "us_ppi", "us_nfp", "us_unrate")]
+    for c in cards:
+        assert c["value"] is not None, c["key"]
+        assert re.match(r"^\d{6}$", c["date"]), c["key"]
+        assert len(c["spark"]) <= 24
+    assert _card(data, "external", "us_nfp")["unit"] == "千人"
+    assert liq
+
+
+def test_card_next_note_from_calendar():
+    data = _collect()
+    assert _card(data, "macro", "cn_cpi")["note"].startswith("下次公布：11/9 周一 09:30")
+
+
+def test_us_card_note_falls_back_to_fred(monkeypatch):
+    monkeypatch.setattr(DemoFred, "release_dates", lambda self, rid, start: ["20261210"])
+    data = _collect(src=_NoUsCpiSource())
+    assert _card(data, "external", "us_cpi")["note"] == "下次公布：12/10 周四（时间待定）"
+
+
+def test_us_card_note_absent_when_no_schedule(monkeypatch):
+    monkeypatch.setattr(DemoFred, "release_dates", lambda self, rid, start: None)
+    data = _collect(src=_NoEcoSource())
+    assert _card(data, "external", "us_cpi")["note"] == ""

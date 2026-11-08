@@ -321,6 +321,64 @@ def _exact_limits(c: Ctx, d: str) -> dict:
     return c.exact_limits[d]
 
 
+def _next_note(c: Ctx, item: str, fred_key: str | None, series=None) -> str:
+    """「下次公布：…」：先查财经日历；没有再用 FRED 公布日程（仅日期）；都没有 → 空串。"""
+    try:
+        ev = econ_calendar.next_release(c.shared.get("eco_events", []), item, c.now)
+        if ev:
+            return econ_calendar.format_next(ev["date"], ev["time"])
+        if not fred_key:
+            return ""
+        rid = config.FRED_RELEASES[fred_key]
+        cache = c.shared.setdefault("fred_release_dates", {})
+        if rid not in cache:
+            try:
+                today_d = c.now.astimezone(SH).strftime("%Y-%m-%d")
+                cache[rid] = c.fred.release_dates(rid, today_d)
+            except Exception as e:  # noqa: BLE001
+                log.warning("FRED 公布日程 %s 获取失败（%s）", rid, type(e).__name__)
+                cache[rid] = None
+        today = c.now.astimezone(SH).strftime("%Y%m%d")
+        last_m = series.index[-1][:6] if series is not None and len(series) else None
+        for d in cache[rid] or []:
+            if d >= today and (last_m is None or d[:6] > last_m):
+                return econ_calendar.format_next(d, None)
+    except Exception as e:  # noqa: BLE001
+        log.warning("下次公布时间生成失败（%s）", type(e).__name__)
+    return ""
+
+
+def _us_macro_cards(c: Ctx) -> list:
+    """美国 CPI / PPI 同比、非农新增、失业率（FRED 月度序列，独立取数窗口）。"""
+    start = _month_start(c.D, 37)
+    start = f"{start[:4]}-{start[4:6]}-{start[6:]}"
+    raw, missing = {}, []
+    for sid in config.FRED_MACRO_SERIES:
+        try:
+            s = c.fred.series(sid, start)
+        except Exception as e:  # noqa: BLE001
+            log.warning("FRED %s 获取失败（%s）", sid, type(e).__name__)
+            s = None
+        if s is None or len(s) == 0:
+            missing.append(sid)
+            raw[sid] = _empty_series()
+            continue
+        s = pd.to_numeric(s, errors="coerce").dropna()
+        s = s[s.index <= pd.Timestamp(c.D)]
+        raw[sid] = pd.Series(s.to_numpy(dtype=float), index=[t.strftime("%Y%m") for t in s.index])
+    if missing:
+        log.warning("FRED %s 无数据，相关宏观卡片留空", "、".join(missing))
+    sm = config.MACRO_SPARK_MONTHS
+    cpi, ppi = ml.yoy_pct(raw["CPIAUCSL"]), ml.yoy_pct(raw["PPIFIS"])
+    nfp, un = raw["PAYEMS"].diff().dropna(), raw["UNRATE"]
+    return [
+        _mk_card("us_cpi", "美国CPI同比", cpi, "%", spark_n=sm, note=_next_note(c, "us_cpi_yoy", "us_cpi", cpi)),
+        _mk_card("us_ppi", "美国PPI同比", ppi, "%", spark_n=sm, note=_next_note(c, "us_ppi_yoy", "us_ppi", ppi)),
+        _mk_card("us_nfp", "美国非农新增", nfp, "千人", spark_n=sm, note=_next_note(c, "us_nfp", "us_nfp", nfp)),
+        _mk_card("us_unrate", "美国失业率", un, "%", spark_n=sm, note=_next_note(c, "us_unrate", "us_unrate", un)),
+    ]
+
+
 def _liquidity(c: Ctx) -> dict:
     src, D = c.src, c.D
     start = c.days[0]
@@ -373,6 +431,9 @@ def _liquidity(c: Ctx) -> dict:
     m1_yoy = _ser(m2_df, "month", "m1_yoy")
     sf_yoy = ml.yoy_pct(_ser(sf_df, "month", "stk_endval"))
     c.shared["m1"], c.shared["sf_yoy"] = m1_yoy, sf_yoy
+    cpi_df = _fetch("中国CPI", src.cn_cpi, _month_start(D, 25)[:6], D[:6])
+    ppi_df = _fetch("中国PPI", src.cn_ppi, _month_start(D, 25)[:6], D[:6])
+    spark_m = config.MACRO_SPARK_MONTHS
     macro = [
         _mk_card("shibor_on", "Shibor隔夜", on, "%"),
         _mk_card("shibor_1w", "Shibor 1W", w1, "%"),
@@ -384,6 +445,10 @@ def _liquidity(c: Ctx) -> dict:
         _mk_card("m1", "M1同比", m1_yoy, "%"),
         _mk_card("m2", "M2同比", _ser(m2_df, "month", "m2_yoy"), "%"),
         _mk_card("sf", "社融存量同比", sf_yoy, "%"),
+        _mk_card("cn_cpi", "CPI同比", _ser(cpi_df, "month", "nt_yoy"), "%", spark_n=spark_m,
+                 note=_next_note(c, "cn_cpi_yoy", None, _ser(cpi_df, "month", "nt_yoy"))),
+        _mk_card("cn_ppi", "PPI同比", _ser(ppi_df, "month", "ppi_yoy"), "%", spark_n=spark_m,
+                 note=_next_note(c, "cn_ppi_yoy", None, _ser(ppi_df, "month", "ppi_yoy"))),
         _mk_card("bond_fut", "10年国债期货", bond, "元", note="价格涨=收益率降"),
         _mk_card("brent", "布伦特原油", brent, "美元/桶", change="pct"),
     ]
@@ -430,6 +495,7 @@ def _external(c: Ctx, start: str):
         _mk_card("us2y", "美债2年", _ser(yields, "date", "y2"), "%"),
         _mk_card("us10y", "美债10年", _ser(yields, "date", "y10"), "%"),
         _mk_card("tips10", "美债10年实际利率", raw["DFII10"], "%"),
+        *_us_macro_cards(c),
         _mk_card("usd", "美元指数", usd, "点", change="pct", note="FXCM 美元指数，非 DXY"),
     ]
     for code, name in config.US_INDICES:
