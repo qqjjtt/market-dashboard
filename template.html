@@ -361,6 +361,64 @@
   .ov-rows { display: flex; flex-direction: column; gap: 8px; }
   .ov-rows .r { font-size: 15px; overflow-wrap: anywhere; }
   .ov-rows .r b { font-weight: 650; }
+  /* macro calendar page (all scoped under .ecal) */
+  .ecal { max-width: 720px; margin-top: 4px; }
+  .ecal .ecal-card { position: relative; padding: 16px 16px 12px; }
+  .ecal .ecal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .ecal .ecal-month { position: relative; display: inline-flex; align-items: center; min-width: 0; }
+  .ecal .ecal-month select { -webkit-appearance: none; appearance: none; border: 0; margin: 0; background: transparent; color: var(--ink);
+                             font: inherit; font-size: 20px; font-weight: 650; line-height: 1.3; padding: 4px 28px 4px 6px; border-radius: 6px; cursor: pointer; }
+  .ecal .ecal-month select:hover { background: var(--surface); }
+  .ecal .ecal-month select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .ecal .ecal-month::after { content: ""; position: absolute; right: 10px; top: 50%; width: 6px; height: 6px; pointer-events: none;
+                             border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-70%) rotate(45deg); }
+  .ecal .ecal-nav { display: inline-flex; flex: none; gap: 2px; padding: 3px; background: var(--surface); border-radius: 999px; }
+  .ecal .ecal-nav button { width: 34px; height: 30px; border: 0; margin: 0; padding: 0; background: transparent; color: var(--ink);
+                           font: inherit; font-size: 20px; line-height: 1; border-radius: 999px; cursor: pointer; }
+  .ecal .ecal-nav button:hover:not(:disabled) { background: var(--bg); }
+  .ecal .ecal-nav button:disabled { color: var(--muted); opacity: .4; cursor: default; }
+  .ecal .ecal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+  .ecal .ecal-wd { text-align: center; color: var(--muted); font-size: 13px; padding: 6px 0 4px; }
+  .ecal .ecal-day { display: flex; flex-direction: column; align-items: center; gap: 3px; height: 58px; padding: 6px 0 0; margin: 0;
+                    border: 0; border-radius: var(--radius); background: transparent; color: var(--ink); font: inherit; cursor: pointer; min-width: 0; }
+  .ecal .ecal-day .n { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%;
+                       font-size: 17px; font-weight: 550; font-variant-numeric: tabular-nums; }
+  .ecal .ecal-day:hover:not(:disabled) { background: var(--surface); }
+  .ecal .ecal-day:active:not(:disabled), .ecal .ecal-day.sel { background: color-mix(in oklab, var(--ink) 7%, var(--surface)); }
+  .ecal .ecal-day:disabled { cursor: default; pointer-events: none; color: var(--ink); opacity: 1; }
+  .ecal .ecal-day.today .n { box-shadow: inset 0 0 0 2px var(--ink); font-weight: 650; }
+  .ecal .ecal-dots { display: flex; align-items: center; gap: 3px; height: 7px; }
+  .ecal .ecal-dots i, .ecal .ecal-legend i { display: block; width: 5px; height: 5px; border-radius: 50%; }
+  .ecal .ecal-dots i.big, .ecal .ecal-legend i.big { width: 7px; height: 7px; }
+  .ecal .ecal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 10px; padding-top: 10px;
+                       border-top: 1px solid var(--hair); color: var(--muted); font-size: 12.5px; }
+  .ecal .ecal-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .ecal .ecal-foot { margin: 10px 2px 0; color: var(--muted); font-size: 12px; }
+  .ecal .ecal-pop { position: absolute; z-index: 30; width: 360px; max-width: calc(100% - 16px); max-height: 380px; overflow-y: auto;
+                    background: var(--bg); border: 1px solid var(--hair); border-radius: var(--radius); padding: 10px 14px 6px;
+                    box-shadow: 0 6px 24px rgba(31, 43, 77, .14); }
+  .ecal .ecal-pop.sheet { position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: 100%; max-width: none; max-height: 70vh;
+                          border-radius: 12px 12px 0 0; padding: 12px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+                          box-shadow: 0 -6px 24px rgba(31, 43, 77, .16); }
+  .ecal .ecal-pop-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 6px; }
+  .ecal .ecal-pop-t { font-weight: 650; font-size: 15px; }
+  .ecal .ecal-x { flex: none; width: 30px; height: 30px; margin: 0 -6px 0 0; padding: 0; border: 0; border-radius: 50%; background: transparent;
+                  color: var(--muted); font: inherit; font-size: 20px; line-height: 1; cursor: pointer; }
+  .ecal .ecal-x:hover { background: var(--surface); color: var(--ink); }
+  .ecal .ecal-ev { display: grid; grid-template-columns: 3.2em auto minmax(0, 1fr); align-items: baseline; gap: 2px 8px;
+                   padding: 8px 0; border-top: 1px solid var(--hair); font-size: 14px; }
+  .ecal .ecal-ev .t { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .ecal .ecal-ev .l { font-weight: 550; overflow-wrap: anywhere; }
+  .ecal .ecal-ev .v { grid-column: 2 / -1; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .ecal .ecal-ev .v b { color: var(--ink); font-weight: 650; }
+  @media (max-width: 560px) {
+    .ecal .ecal-card { padding: 12px 8px 10px; }
+    .ecal .ecal-head { padding: 0 4px; }
+    .ecal .ecal-month select { font-size: 18px; }
+    .ecal .ecal-day { height: 50px; padding-top: 4px; }
+    .ecal .ecal-day .n { width: 30px; height: 30px; font-size: 15px; }
+    .ecal .ecal-legend { padding: 10px 4px 0; }
+  }
 </style>
 </head>
 <body>
@@ -378,6 +436,7 @@
   <section class="page" id="p-team"></section>
   <section class="page" id="p-retail"></section>
   <section class="page" id="p-value"></section>
+  <section class="page" id="p-calendar"></section>
 </div>
 <footer class="foot" id="foot"></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
@@ -1813,6 +1872,175 @@ function renderValue(p) {
   guard(p, function (b) { var w = el("div"); w.style.marginTop = "16px"; b.appendChild(w); renderValueMargin(w); });
 }
 
+/* ================= macro calendar ================= */
+var ECAL_NOTE = "数据来源 tushare eco_cal，时间为北京时间；预告时间以官方发布为准。";
+var ECAL_WD = ["日", "一", "二", "三", "四", "五", "六"];
+function ecalPad(n) { return (n < 10 ? "0" : "") + n; }
+function ecalYmAdd(ym, k) {                         /* "202611", +1 -> "202612" */
+  var m = +ym.slice(0, 4) * 12 + (+ym.slice(4, 6) - 1) + k;
+  return Math.floor(m / 12) + ecalPad(m % 12 + 1);
+}
+function ecalYmLabel(ym) { return ym.slice(0, 4) + " 年 " + (+ym.slice(4, 6)) + " 月"; }
+function ecalDayTitle(d) {                          /* "20261113" -> "11月13日 周五" */
+  var dt = new Date(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8));
+  return (+d.slice(4, 6)) + "月" + (+d.slice(6, 8)) + "日 周" + ECAL_WD[dt.getDay()];
+}
+function ecalText(v) { return v === null || v === undefined || v === "" ? DASH : String(v); }
+
+function renderCalendar(p) {
+  var E = DATA.eco_calendar || {};
+  var evs = (Array.isArray(E.events) ? E.events : []).filter(function (e) {
+    return e && typeof e.date === "string" && /^\d{8}$/.test(e.date) && (e.region === "cn" || e.region === "us");
+  });
+  secTitle(p, "财经日历", "中国 · 美国重要数据与议息");
+  if (E.status === "stale") p.appendChild(el("div", "note", "本次未能刷新，显示的是存档数据"));
+  var root = el("div", "ecal");
+  p.appendChild(root);
+  if (!evs.length) {
+    add(root, el("div", "card empty-note", "日历数据暂缺"), el("p", "ecal-foot", ECAL_NOTE));
+    return;
+  }
+
+  var byDay = {};
+  evs.forEach(function (e) { (byDay[e.date] = byDay[e.date] || []).push(e); });
+  var today = typeof E.today === "string" && /^\d{8}$/.test(E.today) ? E.today : null;
+  if (!today) { var now = new Date(); today = now.getFullYear() + ecalPad(now.getMonth() + 1) + ecalPad(now.getDate()); }
+  var months = evs.map(function (e) { return e.date.slice(0, 6); }).sort();
+  var lo = typeof E.start === "string" && /^\d{8}$/.test(E.start) ? E.start.slice(0, 6) : months[0];
+  var hi = months[months.length - 1], tm = today.slice(0, 6);
+  if (tm > hi) hi = tm;
+  if (lo > hi) lo = hi;
+  var cur = tm < lo ? lo : tm > hi ? hi : tm;
+
+  var card = el("div", "card ecal-card");
+  var head = el("div", "ecal-head");
+  var pick = el("span", "ecal-month");
+  var sel = el("select");
+  sel.setAttribute("aria-label", "选择月份");
+  for (var ym = lo; ym <= hi; ym = ecalYmAdd(ym, 1)) { var o = el("option", null, ecalYmLabel(ym)); o.value = ym; sel.appendChild(o); }
+  pick.appendChild(sel);
+  var nav = el("div", "ecal-nav");
+  var prev = el("button", null, "‹"), next = el("button", null, "›");
+  prev.type = "button"; next.type = "button";
+  prev.setAttribute("aria-label", "上个月"); next.setAttribute("aria-label", "下个月");
+  add(nav, prev, next);
+  add(head, pick, nav);
+  var wk = el("div", "ecal-grid");
+  ["一", "二", "三", "四", "五", "六", "日"].forEach(function (w) { wk.appendChild(el("div", "ecal-wd", w)); });
+  var grid = el("div", "ecal-grid");
+  var leg = el("div", "ecal-legend");
+  function legDot(color, big, text) {
+    var s = el("span"), i = el("i", big ? "big" : null);
+    i.style.background = color;
+    add(s, i, document.createTextNode(text));
+    return s;
+  }
+  add(leg, legDot(C.warm, false, "中国"), legDot(C.cold, false, "美国"), legDot(C.muted, true, "大点：当天有重要数据"));
+  add(card, head, wk, grid, leg);
+  add(root, card, el("p", "ecal-foot", ECAL_NOTE));
+
+  var open = null;                                  /* { pop, btn } — one popover at a time */
+  function closePop(refocus) {
+    if (!open) return;
+    var o = open; open = null;
+    if (o.pop.parentNode) o.pop.parentNode.removeChild(o.pop);
+    o.btn.classList.remove("sel");
+    if (refocus && o.btn.isConnected) o.btn.focus({ preventScroll: true });
+  }
+  function place() {                                /* desktop: under the day, clamped inside the card; narrow: bottom sheet */
+    if (!open) return;
+    var pop = open.pop, narrow = isNarrow();
+    pop.classList.toggle("sheet", narrow);
+    if (narrow) { pop.style.left = ""; pop.style.top = ""; return; }
+    var cr = card.getBoundingClientRect(), br = open.btn.getBoundingClientRect();
+    var ox = cr.left + card.clientLeft, oy = cr.top + card.clientTop, cw = card.clientWidth, ch = card.clientHeight;
+    var w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(8, Math.min(br.left - ox + br.width / 2 - w / 2, cw - w - 8));
+    var top = br.bottom - oy + 4;
+    if (top + h > ch && br.top - oy - 4 - h >= 0) top = br.top - oy - 4 - h;
+    pop.style.left = left + "px"; pop.style.top = top + "px";
+  }
+  function evRow(e) {
+    var r = el("div", "ecal-ev"), v = el("div", "v");
+    add(r, el("span", "t", e._t || "待定"), badge(e.region === "cn" ? "中" : "美", "gray"), el("span", "l", ecalText(e.label || e.item)));
+    add(v, el("span", null, "前值 " + ecalText(e.pre) + " · 预期 " + ecalText(e.fore) + " · 公布 "),
+        ecalText(e.value) === DASH ? el("span", null, DASH) : el("b", null, String(e.value)));
+    r.appendChild(v);
+    return r;
+  }
+  function openPop(btn, key) {
+    closePop(false);
+    var pop = el("div", "ecal-pop"), hd = el("div", "ecal-pop-hd"), x = el("button", "ecal-x", "×");
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-label", ecalDayTitle(key));
+    x.type = "button"; x.setAttribute("aria-label", "关闭");
+    x.addEventListener("click", function () { closePop(true); });
+    add(hd, el("div", "ecal-pop-t", ecalDayTitle(key)), x);
+    pop.appendChild(hd);
+    byDay[key].map(function (e) {
+      return Object.assign({}, e, { _t: typeof e.time === "string" && /^\d{2}:\d{2}$/.test(e.time) ? e.time : null });
+    }).sort(function (a, b) {
+      var ta = a._t || "99:99", tb = b._t || "99:99";
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    }).forEach(function (e) { pop.appendChild(evRow(e)); });
+    btn.classList.add("sel");
+    card.appendChild(pop);
+    open = { pop: pop, btn: btn };
+    place();
+    x.focus({ preventScroll: true });
+  }
+  function dayCell(key, d) {
+    var list = byDay[key] || [];
+    var b = el("button", "ecal-day"), dots = el("span", "ecal-dots");
+    b.type = "button";
+    b.appendChild(el("span", "n", String(d)));
+    ["cn", "us"].forEach(function (r) {
+      var mine = list.filter(function (e) { return e.region === r; });
+      if (!mine.length) return;
+      var i = el("i", mine.some(function (e) { return e.major; }) ? "big" : null);
+      i.style.background = r === "cn" ? C.warm : C.cold;
+      dots.appendChild(i);
+    });
+    b.appendChild(dots);
+    if (key === today) { b.classList.add("today"); b.setAttribute("aria-current", "date"); }
+    if (!list.length) { b.disabled = true; return b; }
+    b.setAttribute("aria-label", ecalDayTitle(key) + "，" + list.length + " 项");
+    b.setAttribute("aria-haspopup", "dialog");
+    b.addEventListener("click", function () { if (open && open.btn === b) closePop(true); else openPop(b, key); });
+    return b;
+  }
+  function show(ym) {
+    closePop(false);
+    cur = ym;
+    sel.value = ym;
+    prev.disabled = ym <= lo; next.disabled = ym >= hi;
+    grid.textContent = "";
+    var y = +ym.slice(0, 4), m = +ym.slice(4, 6);
+    var lead = (new Date(y, m - 1, 1).getDay() + 6) % 7;   /* weeks start on Monday */
+    var days = new Date(y, m, 0).getDate();
+    var i;
+    for (i = 0; i < lead; i++) grid.appendChild(el("div"));
+    for (i = 1; i <= days; i++) grid.appendChild(dayCell(ym + ecalPad(i), i));
+    for (i = (7 - (lead + days) % 7) % 7; i > 0; i--) grid.appendChild(el("div"));
+  }
+
+  sel.addEventListener("change", function () { show(sel.value); });
+  prev.addEventListener("click", function () { if (cur > lo) show(ecalYmAdd(cur, -1)); });
+  next.addEventListener("click", function () { if (cur < hi) show(ecalYmAdd(cur, 1)); });
+  document.addEventListener("click", function (e) {
+    if (!open) return;
+    var t = e.target;
+    if (open.pop.contains(t) || (t.closest && t.closest(".ecal-day") === open.btn)) return;
+    closePop(false);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (open && (e.key === "Escape" || e.key === "Esc")) closePop(true);
+  });
+  window.addEventListener("resize", place);
+  window.addEventListener("hashchange", function () { closePop(false); });
+  show(cur);
+}
+
 /* ================= footer (facts, warnings) ================= */
 function renderFooter(root) {
   var m = DATA.meta || {};
@@ -1837,7 +2065,8 @@ var PAGES = [
   { key: "sector", name: "板块流向", render: renderSector },
   { key: "team", name: "国家队", render: renderTeam },
   { key: "retail", name: "散户情绪", render: renderRetail },
-  { key: "value", name: "估值·筹码", render: renderValue }
+  { key: "value", name: "估值·筹码", render: renderValue },
+  { key: "calendar", name: "日历", render: renderCalendar }
 ];
 var rendered = {};
 function route() {

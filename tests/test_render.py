@@ -47,3 +47,16 @@ def test_no_method_text_in_template():
     src = re.sub(r"(?m)^\s*//.*$", "", src)
     for bad in ("σ", "标准差", "÷", "Σ"):
         assert bad not in src, bad
+
+
+def test_calendar_page_wired():
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "template.html").read_text(encoding="utf-8")
+    assert 'id="p-calendar"' in src
+    assert 'key: "calendar"' in src
+    assert "function renderCalendar" in src
+    assert "数据来源 tushare eco_cal，时间为北京时间；预告时间以官方发布为准。" in src
+    m = re.search(r"function renderCalendar\(.*?\n\}\n", src, flags=re.S)
+    assert m, "renderCalendar body not found"
+    assert "innerHTML" not in m.group(0)
