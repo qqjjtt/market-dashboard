@@ -503,7 +503,24 @@ def test_archive_writes_payload_named_by_trade_date(tmp_path, monkeypatch):
     td = data["meta"]["trade_date"]
     assert files[0].name == f"{td[:4]}-{td[4:6]}-{td[6:]}.json"
     assert data["meta"]["demo"] is False and data["meta"]["code_version"] == "abcdef1"
-    assert data == json.loads(extract_data_json(out.read_text(encoding="utf-8")))
+    page = json.loads(extract_data_json(out.read_text(encoding="utf-8")))
+    # 财经日历只存交易日当天的事件，其余与页面一致
+    pe, ae = page.pop("eco_calendar"), data.pop("eco_calendar")
+    assert data == page
+    assert ae["events"] == [e for e in pe["events"] if e["date"] == td]
+    assert {k: v for k, v in ae.items() if k != "events"} == {k: v for k, v in pe.items() if k != "events"}
+    assert len(pe["events"]) > len(ae["events"])
+
+
+def test_archive_trims_eco_calendar_to_trade_date(tmp_path):
+    evs = [{"date": d, "item": "cn_lpr"} for d in ("20261105", "20261106", "20261107")]
+    payload = {"meta": {"trade_date": "20261106"},
+               "eco_calendar": {"today": "20261108", "start": "20260510", "status": "ok", "events": evs}}
+    path = build.archive(payload, str(tmp_path))
+    got = json.loads(path.read_text(encoding="utf-8"))["eco_calendar"]
+    assert got == {"today": "20261108", "start": "20260510", "status": "ok", "events": [evs[1]]}
+    assert len(payload["eco_calendar"]["events"]) == 3   # 不改动页面用的 payload
+    build.archive({"meta": {"trade_date": "20261106"}}, str(tmp_path / "x"))   # 没有日历也能存
 
 
 def test_archive_overwrites_same_trade_date(tmp_path, monkeypatch):

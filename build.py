@@ -1288,8 +1288,13 @@ def _make_sources(demo: bool):
 
 
 def archive(payload: dict, directory: str) -> Path:
-    """把 payload 写成 directory/<交易日 YYYY-MM-DD>.json；先写临时文件再替换，同一交易日覆盖。"""
+    """把 payload 写成 directory/<交易日 YYYY-MM-DD>.json；先写临时文件再替换，同一交易日覆盖。
+    财经日历全量已在 data/eco_cal.json，这里只存交易日当天的事件。"""
     td = payload["meta"]["trade_date"]
+    eco = payload.get("eco_calendar")
+    if isinstance(eco, dict):
+        eco = dict(eco, events=[e for e in eco.get("events") or [] if e.get("date") == td])
+        payload = dict(payload, eco_calendar=eco)
     path = Path(directory) / f"{td[:4]}-{td[4:6]}-{td[6:]}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")

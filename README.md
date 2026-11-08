@@ -61,7 +61,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 **退出码与部署**：构建退出码 3（整体取数失败，见上文「运行」）会让 build job 失败，deploy job 不会运行，Pages 上保持上一份好页面；之后下一次定时运行会自动重试。看到 Actions 里 build 红了，先看日志里的 ERROR：多半是 token 失效或 tushare 不可用。
 
-**每日数据存档**：每次构建成功（非演示数据）后，当天页面用到的全部数据另存为 `history/<交易日 YYYY-MM-DD>.json`，由 `github-actions[bot]` 提交回 `main`（提交信息 `data: 存档 2026-11-06`）。同一交易日再跑会覆盖成最新一版，之前的版本留在 Git 历史里。文件里 `meta.code_version` 是当时代码的提交号，以后改了规则能分清哪些天按旧规则算。同一步骤还会提交 `data/eco_cal.json`（财经日历存档，见「财经日历」）。存档步骤失败不影响页面发布（运行页显示黄色提示）。本地改代码前先 `git pull`，因为机器人每天会往 `main` 提交。用法：`python build.py --archive history`（`--demo` 时不存）。
+**每日数据存档**：每次构建成功（非演示数据）后，当天页面用到的全部数据另存为 `history/<交易日 YYYY-MM-DD>.json`（财经日历只存交易日当天的事件，全量在 `data/eco_cal.json`），由 `github-actions[bot]` 提交回 `main`（提交信息 `data: 存档 2026-11-06`）。同一交易日再跑会覆盖成最新一版，之前的版本留在 Git 历史里。文件里 `meta.code_version` 是当时代码的提交号，以后改了规则能分清哪些天按旧规则算。同一步骤还会提交 `data/eco_cal.json`（财经日历存档，见「财经日历」）。存档步骤失败不影响页面发布（运行页显示黄色提示）。本地改代码前先 `git pull`，因为机器人每天会往 `main` 提交。用法：`python build.py --archive history`（`--demo` 时不存）。
 
 **60 天无活动会停掉定时任务**：GitHub 会在公开仓库 60 天没有任何仓库活动（push、PR 等）后自动停用定时（`schedule`）工作流。每日存档提交本身算仓库活动，正常运转时不会触发；若连续多日构建失败没有存档，仍可能被停。恢复方法：仓库 Actions 页 → 左侧选 `build` → 点页面上的 **Enable workflow**（或随手提交一次改动再手动 Run workflow）。建议每个月左右有一次提交，或手动运行一次。
 
