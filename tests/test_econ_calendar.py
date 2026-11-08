@@ -262,3 +262,92 @@ def test_normalize_drops_bad_dates():
             {"date": "2026-11-09", "time": "09:30", "event": "中国CPI年率(%)(年度)(十月)"},
             {"date": "20261109", "time": "09:30", "event": "中国CPI年率(%)(年度)(十月)"}]
     assert [e["date"] for e in normalize(rows)] == ["20261109"]
+
+
+# ---------------------------------------------------------------- 终审修复：改期 / 取消 / 存档不裁剪 / 坏行
+
+_US_CPI_OCT = "美国未季调CPI年率(%)(年度)(十月)"
+
+
+def _src_with(rows):
+    """rows: [(date, time, country, event, value)]，按段返回落在 [start, end] 内、国家相同的行。"""
+    def f(start, end, country):
+        return [(d, t, c, e, v, "", "") for d, t, c, e, v in rows if c == country and start <= d <= end]
+    return f
+
+
+def _fetch(stored, rows, **kw):
+    store, _ = ec.fetch_events(FakeSrc(_src_with(rows), **kw), TODAY,
+                               {"covered_from": None, "events": stored}, 1000, backfill=False)
+    return store
+
+
+def test_merge_fresh_beats_stored_when_neither_has_value():
+    stored = [ev(item="us_cpi_yoy", region="us", date="20261113", period="十月")]
+    fresh = [ev(item="us_cpi_yoy", region="us", date="20261110", period="十月")]
+    out = merge(stored, fresh)
+    assert [e["date"] for e in out] == ["20261110"]
+    assert "_fresh" not in out[0] and set(out[0]) == set(fresh[0])
+    assert merge(fresh, stored)[0]["date"] == "20261113"   # 反过来：后来的（fresh）赢
+
+
+def test_fetch_moved_earlier_replaces_stored():
+    stored = [ev(item="us_cpi_yoy", region="us", date="20261113", period="十月")]
+    store = _fetch(stored, [("20261110", "21:30", "美国", _US_CPI_OCT, "")])
+    assert [e["date"] for e in store["events"] if e["item"] == "us_cpi_yoy"] == ["20261110"]
+    now = datetime(2026, 11, 8, 10, 0, tzinfo=SH)
+    assert next_release(store["events"], "us_cpi_yoy", now)["date"] == "20261110"
+
+
+def test_fetch_no_period_moved_keeps_only_fresh_date():
+    stored = [ev(item="cn_lpr", date="20261113", time="09:00")]
+    store = _fetch(stored, [("20261117", "09:00", "中国", "中国央行贷款市场报价利率(LPR)", "")])
+    assert [e["date"] for e in store["events"] if e["item"] == "cn_lpr"] == ["20261117"]
+
+
+def test_fetch_cancelled_row_dropped_only_when_refresh_ok():
+    cancelled = ev(item="cn_m2", date="20261113", period="十月")
+    assert not [e for e in _fetch([cancelled], [])["events"] if e["item"] == "cn_m2"]
+    failed = _fetch([cancelled], [], fail_at=1)
+    assert failed["_refresh_ok"] is False
+    assert [e["date"] for e in failed["events"] if e["item"] == "cn_m2"] == ["20261113"]
+
+
+def test_fetch_keeps_valued_and_out_of_window_rows():
+    valued = ev(item="cn_lpr", date="20261101", value="3.00%")
+    old = ev(item="cn_m2", date="20261001", period="九月")
+    far = ev(item="cn_gdp", date=sh(TODAY, 61), period="第四季度")
+    store = _fetch([valued, old, far], [])
+    assert {(e["item"], e["date"]) for e in store["events"]} == {
+        ("cn_lpr", "20261101"), ("cn_m2", "20261001"), ("cn_gdp", sh(TODAY, 61))}
+
+
+def test_fetch_keeps_rows_older_than_keep_days_in_store():
+    ancient = ev(item="cn_lpr", date=sh(TODAY, -400), value="3.45%")
+    store = _fetch([ancient], [])
+    assert [e["date"] for e in store["events"]] == [sh(TODAY, -400)]
+
+
+def test_load_store_drops_malformed_rows(tmp_path):
+    good = ev(item="cn_lpr", date="20261020", time="09:00", value="3.00%")
+    bad = [5, {"date": "20261020"}, dict(good, date="2026-10-20"), dict(good, item=None),
+           {k: v for k, v in good.items() if k != "value"}]
+    p = tmp_path / "e.json"
+    p.write_text(json.dumps({"covered_from": "20260601", "events": [good, *bad]}), encoding="utf-8")
+    got = ec.load_store(str(p))
+    assert got["covered_from"] == "20260601"
+    assert len(got["events"]) == 1 and got["events"][0]["value"] == "3.00%"
+    ec.merge(got["events"], [])   # 不再 KeyError
+
+
+def test_load_store_refreshes_from_whitelist(tmp_path):
+    gone = ev(item="us_powell_old", region="us", date="20261020")
+    stale = ev(item="cn_m2", date="20261014", period="九月", label="旧名字", major=False, region="us",
+               value="7.2%")
+    p = tmp_path / "e.json"
+    p.write_text(json.dumps({"covered_from": None, "events": [gone, stale]}), encoding="utf-8")
+    got = ec.load_store(str(p))["events"]
+    assert len(got) == 1
+    e = got[0]
+    assert (e["item"], e["label"], e["major"], e["region"], e["period"], e["value"]) == (
+        "cn_m2", "M2 年率 · 九月", True, "cn", "九月", "7.2%")

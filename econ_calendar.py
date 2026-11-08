@@ -77,11 +77,12 @@ def normalize(rows):
     return out
 
 
-def _best(group, date_first=False):
+def _best(group, date_first=False, fresh_from=0):
     """group: [(idx, ev)]。第一轮（同日）：有 value > 出现更晚；
-    第二轮（改期，date_first=True）：有 value > 日期更晚 > 出现更晚（单次取数内行序不可靠）。"""
+    第二轮（改期，date_first=True）：有 value > 本次新取到（idx ≥ fresh_from）> 日期更晚 > 出现更晚
+    （单次取数内行序不可靠；改期提前时新数据必须盖过存档里的旧日期）。"""
     if date_first:
-        return max(group, key=lambda p: (p[1]["value"] is not None, p[1]["date"], p[0]))
+        return max(group, key=lambda p: (p[1]["value"] is not None, p[0] >= fresh_from, p[1]["date"], p[0]))
     return max(group, key=lambda p: (p[1]["value"] is not None, p[0], p[1]["date"]))
 
 
@@ -89,7 +90,9 @@ def _day(d):
     return datetime.strptime(d, "%Y%m%d")
 
 
-def dedupe(events):
+def dedupe(events, fresh_from=None):
+    """fresh_from：events 中从这个下标起是本次新取到的（merge 用）；None 表示不区分。"""
+    fresh_from = len(events) if fresh_from is None else fresh_from
     # 第一轮：同 (item, date) 一条
     g1 = {}
     for i, e in enumerate(events):
@@ -109,9 +112,9 @@ def dedupe(events):
             if (_day(p[1]["date"]) - _day(cluster[-1][1]["date"])).days <= _RESCHEDULE_DAYS:
                 cluster.append(p)
             else:
-                final.append(_best(cluster, True))
+                final.append(_best(cluster, True, fresh_from))
                 cluster = [p]
-        final.append(_best(cluster, True))
+        final.append(_best(cluster, True, fresh_from))
 
     res = [p[1] for p in final]
     res.sort(key=lambda e: (e["date"], e["time"] or "99:99", e["region"], e["item"]))
@@ -119,7 +122,8 @@ def dedupe(events):
 
 
 def merge(stored, fresh):
-    return dedupe(list(stored) + list(fresh))
+    stored = list(stored)
+    return dedupe(stored + list(fresh), fresh_from=len(stored))
 
 
 def _sh(now):
@@ -161,14 +165,42 @@ def load_store(path):
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
         cf, evs = d.get("covered_from"), d["events"]
-        if not isinstance(evs, list) or not all(isinstance(e, dict) for e in evs):
+        if not isinstance(evs, list):
             raise ValueError("events")
         if cf is not None and not (isinstance(cf, str) and len(cf) == 8 and cf.isdigit()):
             raise ValueError("covered_from")
-        return {"covered_from": cf, "events": evs}
     except Exception:  # noqa: BLE001
         log.warning("财经日历存档无法读取，已从空数据开始")
         return _empty_store()
+    good, bad, gone = [], 0, 0
+    for e in evs:
+        if not _valid_row(e):
+            bad += 1
+        elif e["item"] not in _BY_KEY:
+            gone += 1
+        else:
+            good.append(_refresh_row(e))
+    if bad:
+        log.warning("财经日历存档有 %d 条记录格式不对，已忽略", bad)
+    if gone:
+        log.info("财经日历存档有 %d 条记录已不在白名单里，已去掉", gone)
+    return {"covered_from": cf, "events": good}
+
+
+_ROW_KEYS = ("date", "time", "region", "item", "label", "period", "major", "value", "pre", "fore")
+
+
+def _valid_row(e):
+    return (isinstance(e, dict) and all(k in e for k in _ROW_KEYS) and isinstance(e["item"], str)
+            and isinstance(e["date"], str) and len(e["date"]) == 8 and e["date"].isdigit())
+
+
+def _refresh_row(e):
+    """按当前白名单重写 label / major / region（报告期保留）。"""
+    it = _BY_KEY[e["item"]]
+    p = e["period"]
+    return dict(e, region=it["region"], major=it["major"],
+                label=f"{it['label']} · {p}" if p else it["label"])
 
 
 def save_store(path, store):
@@ -259,6 +291,11 @@ def fetch_events(src, today, store, max_calls, backfill=True):
     elif not refresh_ok:
         log.warning("财经日历取数次数用完（%d 次），刷新窗口未取全，已用存档补齐", max_calls)
     fresh = normalize(f.rows)
-    keep = target
-    events = [e for e in merge(store.get("events", []), fresh) if e["date"] >= keep]
-    return {"covered_from": covered, "events": events, "_refresh_ok": refresh_ok}, f.calls
+    stored = store.get("events", [])
+    if refresh_ok:   # 刷新窗口取全了：窗口内没公布值、这次又没再出现的旧行（改期 / 取消）去掉
+        seen = {(e["item"], e["date"]) for e in fresh} | {(e["item"], e["period"]) for e in fresh if e["period"]}
+        stored = [e for e in stored
+                  if e["value"] is not None or not (r_start <= e["date"] <= r_end)
+                  or (e["item"], e["date"]) in seen or (e["period"] and (e["item"], e["period"]) in seen)]
+    # 存档只增不裁；payload 的时间范围由 build 控制
+    return {"covered_from": covered, "events": merge(stored, fresh), "_refresh_ok": refresh_ok}, f.calls
