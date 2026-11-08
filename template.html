@@ -322,6 +322,8 @@
     .idx { border-right: 0; }
     #etf-chart { height: 300px; }
     #temp-chart { height: 290px; }
+    .pb-row { grid-template-columns: minmax(0, 7.5em) minmax(0, 1fr) 3.8em; gap: 8px; }
+    .vc-big { font-size: 21px; }
     .last3 { gap: 8px; }
     .day-card { padding: 8px; }
     .day-card .dv { font-size: 17px; }
@@ -335,6 +337,30 @@
     table.wall td.pf .lbl, .pbar { display: none; }
     .band span { font-size: 11px; padding: 4px 0; }
   }
+
+  /* value & chips page */
+  .vc-head { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; }
+  .vc-big { font-size: 24px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+  .vc-big b { color: var(--tone, var(--ink)); }
+  .vc-corner { margin-left: auto; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .pb-row { display: grid; grid-template-columns: minmax(0, 10.5em) minmax(0, 1fr) 4.2em; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--hair); }
+  .pb-row:last-child { border-bottom: 0; }
+  .pb-row .nm { min-width: 0; overflow-wrap: anywhere; }
+  .pb-row .nm small { display: block; color: var(--muted); font-size: 12.5px; }
+  .pb-row .nm .ls { display: inline; margin-left: 6px; font-size: 11.5px; }
+  .pb-row .pv { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .pb-bar { position: relative; height: 10px; background: var(--surface); border-radius: 5px; }
+  .pb-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--tone, var(--cold)); }
+  .pb-bar u { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 0; border-left: 1px dashed var(--muted); text-decoration: none; }
+  .vc-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 12px 0; }
+  .vc-cell { background: var(--surface); border-radius: var(--radius); padding: 10px 12px; min-width: 0; }
+  .vc-cell .l { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .vc-cell .v { font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .vc-cell .s { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+  .vc-chart { width: 100%; height: 220px; }
+  .ov-rows { display: flex; flex-direction: column; gap: 8px; }
+  .ov-rows .r { font-size: 15px; overflow-wrap: anywhere; }
+  .ov-rows .r b { font-weight: 650; }
 </style>
 </head>
 <body>
@@ -351,6 +377,7 @@
   <section class="page" id="p-sector"></section>
   <section class="page" id="p-team"></section>
   <section class="page" id="p-retail"></section>
+  <section class="page" id="p-value"></section>
 </div>
 <footer class="foot" id="foot"></footer>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
@@ -867,6 +894,7 @@ function renderHome(p) {
   var g = el("div", "ov-grid");
   [ovLiquidity, ovSector, ovTeam, ovRetail].forEach(function (fn) { guard(g, function (box) { box.appendChild(fn()); }); });
   p.appendChild(g);
+  guard(p, renderValueOverview);
   guard(p, renderReminders);
 }
 
@@ -1603,6 +1631,188 @@ function renderRetail(p) {
   guard(p, renderWall);
 }
 
+/* ================= value & chips ================= */
+var VAL_TONE = { "偏低": "red", "中等": "blue", "偏高": "green" };
+var CHIP_TONE = { "偏重": "green", "中等": "blue", "偏轻": "red" };
+var MARGIN_TONE = { "干净": "red", "中性": "blue", "拥挤": "green" };
+function pctText(v, d) { return isNum(v) ? fmtNum(v, d === undefined ? 1 : d) + "%" : DASH; }
+function toneVar(tone) { return TONE_COLOR[tone] || C.muted; }
+function valObj() { var v = DATA.valuation; return v && typeof v === "object" ? v : null; }
+
+function valuePbLine(pb) {
+  pb = pb || {};
+  if (!isNum(pb.avg_pct)) return "估值：" + DASH;
+  return "估值：主要指数 PB 平均处于 10 年 " + fmtNum(pb.avg_pct, 0) + "% 分位，" + (pb.level || DASH);
+}
+function valueChipsLine(ch) {
+  ch = ch || {};
+  if (!isNum(ch.trapped)) return "套牢盘：" + DASH;
+  var bd = {};
+  (Array.isArray(ch.boards) ? ch.boards : []).forEach(function (b) { if (b) bd[b.name] = b.trapped; });
+  return "套牢盘：全市场 " + fmtNum(ch.trapped, 1) + "%（主板 " + pctText(bd["沪深主板"], 1).replace("%", "") +
+    " / 创业板 " + pctText(bd["创业板"], 1).replace("%", "") + " / 科创板 " + pctText(bd["科创板"], 1).replace("%", "") + "）";
+}
+function valueMarginLine(mg) {
+  mg = mg || {};
+  if (!mg.verdict) return "融资：" + DASH;
+  return "融资：" + mg.verdict + "（杠杆率分位 " + pctText(mg.lev_pct, 0) + "，买入占比分位 " + pctText(mg.buy_pct, 0) + "）";
+}
+function renderValueOverview(p) {
+  var V = valObj();
+  if (!V) return;
+  var a = el("a", "card ov");
+  a.href = "#value";
+  a.style.marginTop = "16px";
+  var h = el("div", "ov-head");
+  h.appendChild(el("h2", null, "估值·筹码"));
+  a.appendChild(h);
+  var rows = el("div", "ov-rows");
+  [valuePbLine(V.pb), valueChipsLine(V.chips), valueMarginLine(V.margin)].forEach(function (s) { rows.appendChild(el("div", "r", s)); });
+  a.appendChild(rows);
+  var f = el("div", "ov-foot");
+  add(f, el("span", null, "只展示，不参与流动性打分"), el("span", "go", "查看详情 →"));
+  a.appendChild(f);
+  p.appendChild(a);
+}
+
+function vcHead(title, sub, date) {
+  var h = el("div", "card-head");
+  var l = el("div");
+  l.appendChild(el("h3", null, title));
+  if (sub) l.appendChild(el("p", "sub-line", sub));
+  h.appendChild(l);
+  if (date) h.appendChild(el("span", "vc-corner", fmtDay(date)));
+  return h;
+}
+function vcCell(label, value, sub) {
+  var c = el("div", "vc-cell");
+  add(c, el("div", "l", label), el("div", "v", value));
+  if (sub) c.appendChild(el("div", "s", sub));
+  return c;
+}
+function vcLine(box, dates, vals, color, unit, dec, yExtra) {
+  var chart = null;
+  function draw() {
+    if (!dates.length || typeof echarts === "undefined") {
+      chart = dropChart(chart);
+      chartMsg(box, dates.length ? "图表库未加载（需联网访问 cdnjs）" : "无走势数据");
+      return;
+    }
+    if (!chart) { box.textContent = ""; chart = makeChart(box); }
+    if (!chart) return;
+    chart.setOption(baseOpt({
+      grid: { left: 44, right: 16, top: 16, bottom: 26 },
+      tooltip: tip({ trigger: "axis", formatter: function (ps) {
+        var q = ps[0];
+        return esc(fmtDateLong(dates[q.dataIndex])) + "<br>" + esc(fmtNum(vals[q.dataIndex], dec)) + esc(unit);
+      } }),
+      xAxis: axisCat(dates, { axisLabel: { color: C.muted, fontSize: 12, formatter: function (v) { return fmtDay(v); }, hideOverlap: true } }),
+      yAxis: axisVal(Object.assign({ scale: true, axisLabel: { color: C.muted, fontSize: 12, formatter: function (v) { return fmtNum(v, dec > 1 ? 2 : 0) + unit; } } }, yExtra || {})),
+      series: [{ type: "line", data: vals, symbol: dates.length > 40 ? "none" : "circle", symbolSize: 5, smooth: false,
+        lineStyle: { width: 1.8, color: color }, itemStyle: { color: color }, areaStyle: areaGrad(color, "22") }]
+    }), true);
+    chart.resize();
+  }
+  draw();
+  onBreakpoint(draw);
+}
+
+function renderValuePb(body) {
+  var pb = (valObj() || {}).pb || {};
+  var rows = (Array.isArray(pb.rows) ? pb.rows : []).filter(Boolean);
+  var card = el("div", "card");
+  card.appendChild(vcHead("主要指数 PB · 近 10 年分位", "分位越低，估值越便宜", pb.date));
+  var tone = VAL_TONE[pb.level] || "gray";
+  var big = el("div", "vc-big t-" + tone);
+  if (isNum(pb.avg_pct)) {
+    big.appendChild(document.createTextNode("平均分位 "));
+    big.appendChild(el("b", null, fmtNum(pb.avg_pct, 0) + "%"));
+    big.appendChild(document.createTextNode(" · "));
+    big.appendChild(el("b", null, pb.level || DASH));
+  } else big.textContent = "平均分位 " + DASH;
+  card.appendChild(big);
+  var list = el("div");
+  list.style.marginTop = "8px";
+  if (!rows.length) list.appendChild(el("div", "empty-note", "无数据"));
+  rows.forEach(function (r) {
+    var row = el("div", "pb-row");
+    var nm = el("div", "nm", r.name || DASH);
+    if (isNum(r.pct) && r.full === false) nm.appendChild(el("small", "ls", "上市以来"));
+    nm.appendChild(el("small", null, "PB " + (isNum(r.pb) ? fmtNum(r.pb, 2) : DASH) + " 倍"));
+    var bar = el("div", "pb-bar");
+    if (isNum(r.pct)) {
+      var i = el("i");
+      i.style.width = Math.max(0, Math.min(100, r.pct)) + "%";
+      i.style.setProperty("--tone", toneVar(VAL_TONE[mvLevel(r.pct)]));
+      bar.appendChild(i);
+    }
+    bar.appendChild(el("u"));
+    add(row, nm, bar, el("div", "pv", pctText(r.pct, 1)));
+    list.appendChild(row);
+  });
+  card.appendChild(list);
+  body.appendChild(card);
+}
+function mvLevel(pct) { return !isNum(pct) ? null : pct < 30 ? "偏低" : pct > 70 ? "偏高" : "中等"; }
+
+function renderValueChips(body) {
+  var ch = (valObj() || {}).chips || {};
+  var card = el("div", "card chart-card");
+  card.appendChild(vcHead("套牢盘", "全市场被套股票的市值占比（流通市值加权，不含北交所）", ch.date));
+  var tone = CHIP_TONE[ch.level] || "gray";
+  var big = el("div", "vc-big vc-head");
+  big.appendChild(el("span", null, "全市场套牢盘 " + pctText(ch.trapped, 1)));
+  if (ch.level) big.appendChild(badge(ch.level, tone));
+  card.appendChild(big);
+  var cells = el("div", "vc-cells");
+  var bd = {};
+  (Array.isArray(ch.boards) ? ch.boards : []).forEach(function (b) { if (b) bd[b.name] = b.trapped; });
+  ["沪深主板", "创业板", "科创板"].forEach(function (n) { cells.appendChild(vcCell(n, pctText(bd[n], 1))); });
+  card.appendChild(cells);
+  card.appendChild(el("p", "sub-line", "获利盘不到 10% 的股票占 " + pctText(ch.deep_share, 1)));
+  var H = ch.history || {};
+  var dates = Array.isArray(H.dates) ? H.dates : [], vals = Array.isArray(H.trapped) ? H.trapped : [];
+  var n = Math.min(dates.length, vals.length);
+  dates = dates.slice(0, n); vals = vals.slice(0, n);
+  var box = el("div", "vc-chart");
+  card.appendChild(box);
+  card.appendChild(el("p", "note", "按换手推算的筹码估算，非真实持仓"));
+  body.appendChild(card);
+  vcLine(box, dates, vals, C.down, "%", 1);
+}
+
+function renderValueMargin(body) {
+  var mg = (valObj() || {}).margin || {};
+  var card = el("div", "card chart-card");
+  card.appendChild(vcHead("融资是否干净", "融资余额占流通市值、融资买入占成交额，各自对比近 3 年", mg.date));
+  var big = el("div", "vc-big vc-head");
+  big.appendChild(el("span", null, "融资盘"));
+  big.appendChild(mg.verdict ? badge(mg.verdict, MARGIN_TONE[mg.verdict] || "gray") : el("span", "muted", DASH));
+  card.appendChild(big);
+  var cells = el("div", "vc-cells");
+  add(cells,
+    vcCell("杠杆率", isNum(mg.lev) ? fmtNum(mg.lev, 3) + "%" : DASH, "近 3 年分位 " + pctText(mg.lev_pct, 0)),
+    vcCell("融资买入占成交", isNum(mg.buy_ratio) ? fmtNum(mg.buy_ratio, 2) + "%" : DASH, "5 日均 · 分位 " + pctText(mg.buy_pct, 0)),
+    vcCell("距一年高点", isNum(mg.drawdown) ? fmtSigned(mg.drawdown, 1) + "%" : DASH, isNum(mg.rzye) ? "融资余额 " + fmtNum(mg.rzye, 0) + " 亿" : ""),
+    vcCell("近 5 日", isNum(mg.net5) ? fmtSigned(mg.net5, 0) + " 亿" : DASH, "融资余额变化"));
+  card.appendChild(cells);
+  var H = mg.lev_hist || {};
+  var dates = Array.isArray(H.dates) ? H.dates : [], vals = Array.isArray(H.values) ? H.values : [];
+  var n = Math.min(dates.length, vals.length);
+  var box = el("div", "vc-chart");
+  card.appendChild(box);
+  body.appendChild(card);
+  vcLine(box, dates.slice(0, n), vals.slice(0, n), C.cold, "%", 3);
+}
+
+function renderValue(p) {
+  var V = valObj();
+  if (!V) { p.appendChild(el("div", "card empty-note", "无数据")); return; }
+  guard(p, function (b) { var w = el("div"); w.style.marginTop = "16px"; b.appendChild(w); renderValuePb(w); });
+  guard(p, function (b) { var w = el("div"); w.style.marginTop = "16px"; b.appendChild(w); renderValueChips(w); });
+  guard(p, function (b) { var w = el("div"); w.style.marginTop = "16px"; b.appendChild(w); renderValueMargin(w); });
+}
+
 /* ================= footer (facts, warnings) ================= */
 function renderFooter(root) {
   var m = DATA.meta || {};
@@ -1626,7 +1836,8 @@ var PAGES = [
   { key: "liquidity", name: "流动性", render: renderLiquidity },
   { key: "sector", name: "板块流向", render: renderSector },
   { key: "team", name: "国家队", render: renderTeam },
-  { key: "retail", name: "散户情绪", render: renderRetail }
+  { key: "retail", name: "散户情绪", render: renderRetail },
+  { key: "value", name: "估值·筹码", render: renderValue }
 ];
 var rendered = {};
 function route() {
