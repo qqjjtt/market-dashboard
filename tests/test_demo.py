@@ -213,3 +213,14 @@ def test_demo_hot_sources():
     w, m = d.winner_rate("20261106"), d.circ_mv("20261106")
     assert w["winner_rate"].between(20, 90).all() and (m["circ_mv"] > 0).all() and len(w) == len(m)
     assert d.winner_rate("20261107").empty and d.circ_mv("20261107").empty  # 周六
+
+
+def test_value_chips_methods():
+    d = DemoSource()
+    pb = d.index_pb("000300.SH", "20240101", "20261106")
+    assert list(pb.columns) == ["trade_date", "pb"] and pb["pb"].between(0.3, 8).all() and len(pb) > 500
+    st = d.market_stats("20260101", "20261106")
+    assert list(st.columns) == ["trade_date", "float_mv", "amount"] and (st["float_mv"] > 0).all()
+    md = d.margin_detail("20260101", "20261106")
+    assert list(md.columns) == ["trade_date", "rzye", "rzmre"] and len(md) == len(st)
+    assert d.index_pb("000300.SH", "20261107", "20261108").empty

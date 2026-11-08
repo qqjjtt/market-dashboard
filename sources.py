@@ -313,6 +313,57 @@ class TushareSource:
         out = pd.DataFrame({"trade_date": agg.index, "balance": agg["total"].values / 1e8})
         return out.sort_values("trade_date").reset_index(drop=True)
 
+    def index_pb(self, code, start, end):
+        """指数市净率（index_dailybasic）：trade_date, pb。10 年约 2433 行，一次调用。"""
+        return self._fetch("index_dailybasic", ["trade_date", "pb"], ts_code=code, start_date=start,
+                           end_date=end, fields="trade_date,pb")
+
+    def _sum_by_day(self, api, df, keys, need, label):
+        """按日求和；某日参与求和的行数少于出现过的最大数 → 丢弃该日并记 WARNING。"""
+        g = df.groupby("trade_date")
+        agg = g[keys].sum(min_count=1)
+        agg["n"] = g[keys].count().min(axis=1)
+        full = need if need else agg["n"].max()
+        bad = agg[(agg["n"] < full) | agg[keys].isna().any(axis=1)]
+        if len(bad):
+            log.warning("%s 丢弃%s不足 %d 的日期: %s", api, label, full, list(bad.index))
+        return agg.drop(bad.index).drop(columns="n")
+
+    def market_stats(self, start, end):
+        """沪深两市流通市值与成交额合计（daily_info）。float_mv、amount：亿元（tushare 原值即亿元，不换算）。
+        只保留 SH_MARKET、SZ_MARKET 都在的日期，缺一个 → 丢弃该日并记 WARNING。"""
+        cols = ["trade_date", "ts_code", "float_mv", "amount"]
+        df = self._paged("daily_info", cols, 4000, ts_code="SH_MARKET,SZ_MARKET", start_date=start,
+                         end_date=end, fields="trade_date,ts_code,float_mv,amount")
+        out_cols = ["trade_date", "float_mv", "amount"]
+        df = df[df["ts_code"].isin(["SH_MARKET", "SZ_MARKET"])].copy() if not df.empty else df
+        if df.empty:
+            return _empty(out_cols)
+        for c in ("float_mv", "amount"):
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df = df.drop_duplicates(["trade_date", "ts_code"], keep="last")
+        agg = self._sum_by_day("daily_info", df, ["float_mv", "amount"], 2, "市场数")
+        out = agg.reset_index()[out_cols]
+        return out.sort_values("trade_date").reset_index(drop=True)
+
+    def margin_detail(self, start, end):
+        """沪深两所融资余额 rzye、融资买入额 rzmre 合计：亿元（原值元 ÷1e8）。北交所无对应市值，剔除。
+        某日交易所数不足 2 → 丢弃该日并记 WARNING（最新一天常只发布了一个交易所）。"""
+        cols = ["trade_date", "exchange_id", "rzye", "rzmre"]
+        out_cols = ["trade_date", "rzye", "rzmre"]
+        df = self._paged("margin", cols, 4000, start_date=start, end_date=end,
+                         fields="trade_date,exchange_id,rzye,rzmre")
+        df = df[df["exchange_id"].isin(["SSE", "SZSE"])].copy() if not df.empty else df
+        if df.empty:
+            return _empty(out_cols)
+        for c in ("rzye", "rzmre"):
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df = df.drop_duplicates(["trade_date", "exchange_id"], keep="last")
+        agg = self._sum_by_day("margin", df, ["rzye", "rzmre"], 2, "交易所数")
+        agg = agg / 1e8
+        out = agg.reset_index()[out_cols]
+        return out.sort_values("trade_date").reset_index(drop=True)
+
     def limit_counts(self, trade_date):
         """涨跌停家数 {up, down}；空表 → 均为 None。"""
         df = self.call("limit_list_d", trade_date=trade_date)

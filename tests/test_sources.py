@@ -635,3 +635,50 @@ def test_winner_rate_paginates_and_circ_mv():
     assert pro.calls[0][1]["trade_date"] == "20261105"
     mv = src.circ_mv("20261105")
     assert list(mv.columns) == ["ts_code", "circ_mv"] and len(mv) == 1
+
+
+# ---------------------------------------------------------------- 估值·筹码
+
+def test_index_pb_columns_and_call():
+    pro = FakePro(index_dailybasic=pd.DataFrame({"trade_date": [20261106, 20261105], "pb": [1.33, 1.30],
+                                                 "extra": [1, 2]}))
+    src, _ = make(pro)
+    d = src.index_pb("000300.SH", "20161106", "20261106")
+    assert list(d.columns) == ["trade_date", "pb"] and list(d.trade_date) == ["20261105", "20261106"]
+    name, kw = pro.calls[0]
+    assert name == "index_dailybasic" and kw["ts_code"] == "000300.SH" and kw["fields"] == "trade_date,pb"
+    assert make(FakePro(index_dailybasic=pd.DataFrame()))[0].index_pb("x", "a", "b").empty
+
+
+def test_market_stats_sums_and_drops_missing_market(caplog):
+    df = pd.DataFrame({
+        "trade_date": ["20261104", "20261104", "20261105", "20261105", "20261106"],
+        "ts_code": ["SH_MARKET", "SZ_MARKET", "SH_MARKET", "SZ_MARKET", "SH_MARKET"],
+        "float_mv": [575067.0, 320548.0, 575000.0, 320000.0, 575100.0],
+        "amount": [7733.0, 8857.0, 7000.0, 8000.0, 7500.0],
+    })
+    src, _ = make(FakePro(daily_info=df))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        m = src.market_stats("20261104", "20261106")
+    assert list(m.columns) == ["trade_date", "float_mv", "amount"]
+    assert list(m.trade_date) == ["20261104", "20261105"]  # 20261106 只有沪市 → 丢弃
+    assert m.float_mv.iloc[0] == pytest.approx(895615.0) and m.amount.iloc[0] == pytest.approx(16590.0)
+    assert any("daily_info" in r.getMessage() and "20261106" in r.getMessage() for r in caplog.records)
+    assert make(FakePro(daily_info=pd.DataFrame()))[0].market_stats("a", "b").empty
+
+
+def test_margin_detail_excludes_bse_scales_and_drops_partial_day(caplog):
+    df = pd.DataFrame({
+        "trade_date": ["20261104"] * 3 + ["20261105"] * 1,
+        "exchange_id": ["SSE", "SZSE", "BSE", "SSE"],
+        "rzye": [1.1688e12, 0.9e12, 5e9, 1.2e12],
+        "rzmre": [8e10, 7e10, 1e9, 8e10],
+    })
+    src, _ = make(FakePro(margin=df))
+    with caplog.at_level(logging.WARNING, logger="sources"):
+        m = src.margin_detail("20261104", "20261105")
+    assert list(m.columns) == ["trade_date", "rzye", "rzmre"]
+    assert list(m.trade_date) == ["20261104"]
+    assert m.rzye.iloc[0] == pytest.approx(20688.0) and m.rzmre.iloc[0] == pytest.approx(1500.0)
+    assert any("margin" in r.getMessage() and "20261105" in r.getMessage() for r in caplog.records)
+    assert make(FakePro(margin=pd.DataFrame()))[0].margin_detail("a", "b").empty

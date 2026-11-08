@@ -172,3 +172,14 @@ DISCLOSURE_MIN = 0.8
 SPARK_DAYS = 30
 API_MIN_INTERVAL = {"stk_mins": 61}  # 单接口两次调用的最小间隔（秒）；stk_mins 账号限额 1 次/分钟
 FX_MIN_TICK_RATIO = 0.25  # fx_daily 最新一根 tick_qty 低于其前 3 根中位数的该比例 → 视为未收完的残缺日线并丢弃
+
+# ---------- 估值·筹码页（只展示，不进流动性打分）----------
+# 估值分位（PB）：index_dailybasic 实测这 8 个都有 pb（科创50 自 2020-07-23 起）
+VALUE_INDICES = [("000001.SH", "上证指数"), ("399001.SZ", "深证成指"), ("000016.SH", "上证50"),
+                 ("000300.SH", "沪深300"), ("000905.SH", "中证500"), ("000852.SH", "中证1000"),
+                 ("399006.SZ", "创业板指"), ("000688.SH", "科创50")]
+VALUE = dict(pb_years=10, low=30, high=70,                 # 平均分位 <30 偏低，>70 偏高，其余中等
+             chips_days=60, chips_step=5, deep=10,         # 套牢盘走势：近 60 个开市日每 5 日取一点；获利盘 <10% 为深度套牢
+             trapped_hi=70, trapped_lo=30,                 # 套牢盘 ≥70 偏重，≤30 偏轻
+             margin_years=3, buy_ma=5, dd_window=250,      # 融资分位窗口 3 年；买入占比取 5 日均；回落相对近 250 个观测高点
+             margin_clean=40, margin_crowd=70)             # 两项分位都 <40 干净，都 >70 拥挤

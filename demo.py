@@ -279,6 +279,23 @@ class DemoSource:
         s = self._slice(self._walk("margin", 18500.0, 0.003), start, end)
         return pd.DataFrame({"trade_date": list(s.index), "balance": s.to_numpy().round(2)})
 
+    def index_pb(self, code, start, end):
+        base = 1.0 + _hash("pb", code) % 300 / 100  # 1.0–4.0
+        s = self._slice(self._walk(("pb", code), base, 0.006), start, end)
+        return pd.DataFrame({"trade_date": list(s.index), "pb": s.to_numpy().round(4)})
+
+    def market_stats(self, start, end):
+        mv = self._slice(self._walk("mkt_mv", 900000.0, 0.002), start, end)
+        amt = self._slice(self._walk("mkt_amt", 16000.0, 0.03), start, end)
+        return pd.DataFrame({"trade_date": list(mv.index), "float_mv": mv.to_numpy().round(2),
+                             "amount": amt.to_numpy().round(2)})
+
+    def margin_detail(self, start, end):
+        ye = self._slice(self._walk("md_rzye", 25000.0, 0.003), start, end)
+        mre = self._slice(self._walk("md_rzmre", 1500.0, 0.05), start, end)
+        return pd.DataFrame({"trade_date": list(ye.index), "rzye": ye.to_numpy().round(2),
+                             "rzmre": mre.to_numpy().round(2)})
+
     def limit_counts(self, trade_date):
         rng = self._rng("limits", trade_date)
         return {"up": int(rng.integers(40, 120)), "down": int(rng.integers(2, 30))}

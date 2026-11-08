@@ -25,6 +25,7 @@ import metrics_etf as me
 import metrics_gauge as mg
 import metrics_liquidity as ml
 import metrics_sentiment as ms
+import metrics_value as mvl
 from render import archive_json, render
 from summary import build_conclusions, signed
 
@@ -745,6 +746,7 @@ def _concentration(c: Ctx) -> dict:
         if Dp != Dc:
             log.warning("获利盘数据截至 %s", _md(Dp))
         mv = _fetch(f"流通市值 {_md(Dp)}", src.circ_mv, Dp, note="，获利盘留空")
+        c.shared["chips"] = (Dp, win, mv)  # 估值·筹码页复用，避免重复取数
 
     def prof(codes):
         v = _safe("获利盘", lambda: ms.profit_ratio(win, mv, codes), None)
@@ -759,6 +761,87 @@ def _concentration(c: Ctx) -> dict:
                for r in ranked[:hc["top_k"]]]
     return {"date": Dc, "market": market, "market_yday": market_y, "mode": mode, "rows": rows, "_mode": mode,
             "hot": hot_out, "profit_date": Dp if mp is not None else None, "market_profit": mp, "market_trapped": mt}
+
+
+# ------------------------------------------------------------------ 估值·筹码
+
+def _years_back(d: str, n: int) -> str:
+    dt = datetime.strptime(d, "%Y%m%d")
+    try:
+        return dt.replace(year=dt.year - n).strftime("%Y%m%d")
+    except ValueError:  # 2 月 29 日
+        return dt.replace(year=dt.year - n, day=28).strftime("%Y%m%d")
+
+
+def _default_valuation():
+    return {"pb": {"date": None, "rows": [], "avg_pct": None, "level": None},
+            "chips": {"date": None, "trapped": None, "boards": [], "deep_share": None, "level": None,
+                      "history": {"dates": [], "trapped": []}},
+            "margin": mvl.empty_margin()}
+
+
+def _valuation_pb(c: Ctx, vc: dict) -> dict:
+    start = _years_back(c.D, vc["pb_years"])
+    frames = {code: _fetch(f"PB {name}", c.src.index_pb, code, start, c.D) for code, name in config.VALUE_INDICES}
+    rows = mvl.pb_rows(frames, config.VALUE_INDICES, start)
+    pcts = [r["pct"] for r in rows if r["pct"] is not None]
+    avg = round(sum(pcts) / len(pcts), 1) if pcts else None
+    dates = [str(f["trade_date"].iloc[-1]) for f in frames.values()
+             if isinstance(f, pd.DataFrame) and not f.empty and "trade_date" in f.columns]
+    return {"date": max(dates) if dates else None, "rows": rows, "avg_pct": avg,
+            "level": mvl.level(avg, vc["low"], vc["high"])}
+
+
+def _valuation_chips(c: Ctx, vc: dict) -> dict:
+    out = _default_valuation()["chips"]
+    src = c.src
+    Dp, win, mv = c.shared.get("chips", (None, None, None))
+    if Dp is None:
+        for d in ([x for x in c.days if x <= c.D][-3:][::-1] or [c.D]):
+            df = _fetch(f"获利盘 {_md(d)}", src.winner_rate, d)
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                Dp, win = d, df
+                break
+        if Dp is not None:
+            mv = _fetch(f"流通市值 {_md(Dp)}", src.circ_mv, Dp, note="，套牢盘留空")
+    if Dp is None:
+        log.warning("套牢盘 最近 3 个开市日均无获利盘数据，留空")
+        return out
+    summ = mvl.chips_summary(win, mv, vc["deep"])
+    tr = summ["trapped"]
+    lvl = None if tr is None else "偏重" if tr >= vc["trapped_hi"] else "偏轻" if tr <= vc["trapped_lo"] else "中等"
+    out.update(date=Dp, trapped=tr, boards=summ["boards"], deep_share=summ["deep_share"], level=lvl)
+
+    def history():
+        days = list(src.trade_days(Dp, vc["chips_days"] + 1))
+        picks = days[::-1][::vc["chips_step"]][::-1]
+        dates, vals = [], []
+        for d in picks:
+            w = win if d == Dp else _fetch(f"获利盘 {_md(d)}", src.winner_rate, d)
+            p = ms.profit_ratio(w, mv, None) if isinstance(w, pd.DataFrame) else None
+            if p is None:
+                continue
+            dates.append(d)
+            vals.append(round(100 - p, 1))
+        return {"dates": dates, "trapped": vals}
+
+    out["history"] = _safe("套牢盘走势", history, out["history"])
+    return out
+
+
+def _valuation_margin(c: Ctx, vc: dict) -> dict:
+    start = _shift(_years_back(c.D, vc["margin_years"]), -20)
+    m = _fetch("融资明细", c.src.margin_detail, start, c.D)
+    s = _fetch("市场流通市值与成交额", c.src.market_stats, start, c.D)
+    return mvl.margin_metrics(m, s, vc)
+
+
+def _valuation(c: Ctx) -> dict:
+    vc = config.VALUE
+    d = _default_valuation()
+    return {"pb": _safe("估值分位", lambda: _valuation_pb(c, vc), d["pb"]),
+            "chips": _safe("套牢盘", lambda: _valuation_chips(c, vc), d["chips"]),
+            "margin": _safe("融资是否干净", lambda: _valuation_margin(c, vc), d["margin"])}
 
 
 # ------------------------------------------------------------------ ETF / 国家队
@@ -1048,6 +1131,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
     sector = _safe("板块资金流向", lambda: _sector_flow(c),
                    lambda: {"date": None, "day": _empty_rank(), "d5": _empty_rank()})
     sent = _safe("散户情绪", lambda: _sentiment(c), _default_sentiment)
+    valuation = _safe("估值·筹码", lambda: _valuation(c), _default_valuation)
     etf = _safe("ETF", lambda: _etf(c, round_start), _default_etf)
     news = _safe("新闻", lambda: _news(c, date), lambda: {"domestic": [], "external": [], "status": "failed", "since": None})
     indices = _safe("指数", lambda: _indices(c), list)
@@ -1082,6 +1166,7 @@ def _collect(src, fred, date, round_start, demo, now) -> dict:
         "holdings": etf["holdings"],
         "temperature": sent["temperature"],
         "concentration": sent["concentration"],
+        "valuation": valuation,
     }
 
 

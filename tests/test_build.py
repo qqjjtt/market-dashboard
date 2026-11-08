@@ -784,3 +784,64 @@ def test_fixed_sector_marked_hot_by_l3_child(tmp_path, monkeypatch):
     assert cn["hot"][0]["name"] == "光伏电池组件" and cn["hot"][0]["covered"] is True
     assert "光伏电池组件" not in {r["name"] for r in cn["rows"]}  # covered 的不当动态行
     assert len(cn["rows"]) == 20
+
+
+# ---------------------------------------------------------------- 估值·筹码
+
+def test_valuation_demo_end_to_end(tmp_path):
+    html, data = run(tmp_path)
+    v = data["valuation"]
+    assert [r["code"] for r in v["pb"]["rows"]] == [c for c, _ in config.VALUE_INDICES]
+    assert len(v["pb"]["rows"]) == 8
+    assert all(r["pb"] is not None and r["pct"] is not None for r in v["pb"]["rows"])
+    assert v["pb"]["avg_pct"] is not None and v["pb"]["level"] in ("偏低", "中等", "偏高")
+    ch = v["chips"]
+    assert ch["trapped"] is not None and ch["level"] in ("偏重", "中等", "偏轻")
+    assert [b["name"] for b in ch["boards"]] == ["沪深主板", "创业板", "科创板"]
+    assert len(ch["history"]["dates"]) >= 5 and len(ch["history"]["dates"]) == len(ch["history"]["trapped"])
+    assert ch["history"]["dates"][-1] == ch["date"] and ch["history"]["dates"] == sorted(ch["history"]["dates"])
+    mg = v["margin"]
+    assert mg["verdict"] in ("干净", "中性", "拥挤") and mg["lev_hist"]["values"]
+    assert not any("估值" in w and "生成失败" in w for w in data["meta"]["warnings"])
+
+
+class ValueBroken(DemoSource):
+    def index_pb(self, code, start, end):
+        raise RuntimeError("pb down")
+
+    def margin_detail(self, start, end):
+        raise RuntimeError("margin down")
+
+
+def test_valuation_blocks_degrade_independently(tmp_path, monkeypatch):
+    _, data = run(tmp_path, ValueBroken(), monkeypatch=monkeypatch)
+    v = data["valuation"]
+    assert len(v["pb"]["rows"]) == 8 and all(r["pb"] is None for r in v["pb"]["rows"])
+    assert v["pb"]["avg_pct"] is None and v["pb"]["level"] is None
+    assert v["margin"]["verdict"] is None and v["margin"]["lev_hist"]["dates"] == []
+    assert v["chips"]["trapped"] is not None  # 套牢盘不受影响
+    ws = data["meta"]["warnings"]
+    assert any("PB" in w for w in ws) and any("融资明细" in w for w in ws)
+
+
+class ChipsBroken(DemoSource):
+    def winner_rate(self, trade_date):
+        raise RuntimeError("cyq down")
+
+
+def test_valuation_chips_empty_when_winner_rate_down(tmp_path, monkeypatch):
+    _, data = run(tmp_path, ChipsBroken(), monkeypatch=monkeypatch)
+    v = data["valuation"]
+    assert v["chips"]["trapped"] is None and v["chips"]["history"] == {"dates": [], "trapped": []}
+    assert v["pb"]["avg_pct"] is not None and v["margin"]["verdict"] is not None
+
+
+class MarketStatsBroken(DemoSource):
+    def market_stats(self, start, end):
+        raise RuntimeError("daily_info down")
+
+
+def test_valuation_margin_blank_when_market_stats_down(tmp_path, monkeypatch):
+    _, data = run(tmp_path, MarketStatsBroken(), monkeypatch=monkeypatch)
+    assert data["valuation"]["margin"]["verdict"] is None
+    assert any("市场流通市值与成交额" in w for w in data["meta"]["warnings"])
