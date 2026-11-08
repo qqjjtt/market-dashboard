@@ -1013,6 +1013,12 @@ def test_fred_fallback_skips_dates_up_to_released_calendar_row():
     assert build._next_note(c, "us_cpi_yoy", "us_cpi", _ser_to("202610")) == "下次公布：1/13 周三（时间待定）"
 
 
+def test_fred_fallback_after_cutoff_only_skipped_by_deadline_writes_nothing():
+    # 冬令时 21:30 才公布：21:00 构建、日历无当天行、FRED 未更新 → 不能跳到下个月
+    c = _note_ctx(datetime(2026, 12, 10, 21, 0, tzinfo=build.SH), _CPI_DAY)
+    assert build._next_note(c, "us_cpi_yoy", "us_cpi", _ser_to("202610")) == ""
+
+
 def test_fred_fallback_release_day_morning():
     now = datetime(2026, 12, 10, 9, 0, tzinfo=build.SH)
     # 日历里没有这一行、FRED 还停在公布月−2 → 当天日期可以写

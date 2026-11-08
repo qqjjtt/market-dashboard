@@ -350,10 +350,13 @@ def _next_note(c: Ctx, item: str, fred_key: str | None, series=None) -> str:
             y, m = (y + 1, m - 12) if m > 12 else (y, m)
             min_m = f"{y}{m:02d}"
         for d in cache[rid] or []:
-            if d < today or d <= done or (d == today and n.strftime("%H:%M") >= "20:30"):
+            if d < today or d <= done:
                 continue
-            if min_m is None or d[:6] >= min_m:
-                return econ_calendar.format_next(d, None)
+            if min_m is not None and d[:6] < min_m:
+                continue
+            if d == today and n.strftime("%H:%M") >= "20:30":
+                return ""   # 当天可能已公布（冬令时 21:30）只是数据还没更新：不能跳到下个月，宁可不写
+            return econ_calendar.format_next(d, None)
     except Exception as e:  # noqa: BLE001
         log.warning("下次公布时间生成失败（%s）", type(e).__name__)
     return ""
