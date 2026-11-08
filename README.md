@@ -7,7 +7,7 @@
 3. **国家队还在不在**：宽基 ETF 的净申赎、成交指纹，加上政策工具表佐证
 4. **散户情绪**：韭菜浓度、市场体温
 
-页面是一个带标签页的看板，打开直接看当天数据，不是宣传页：顶部固定栏有标题、交易日、更新时间和六个标签（总览 · 流动性 · 板块流向 · 国家队 · 散户情绪 · 估值·筹码，标签旁的小圆点是该问题的结论色）。「总览」= 大盘指数条 + 四张卡片（每个问题一张：规则生成的结论、三个关键数、一条走势或流入流出前三，点「查看详情」进入对应标签）；每个标签页是该问题的完整明细。标签用 `#home` `#liquidity` `#sector` `#team` `#retail` `#value` 切换，图表在标签首次打开时才绘制；数据告警、板块口径、尾盘来源等放在页脚。数据源是 tushare + FRED，没有数据库、没有后台服务。
+页面是一个带标签页的看板，打开直接看当天数据，不是宣传页：顶部固定栏有标题、交易日、更新时间和七个标签（总览 · 流动性 · 板块流向 · 国家队 · 散户情绪 · 估值·筹码 · 日历，标签旁的小圆点是该问题的结论色）。「总览」= 大盘指数条 + 四张卡片（每个问题一张：规则生成的结论、三个关键数、一条走势或流入流出前三，点「查看详情」进入对应标签）；每个标签页是该问题的完整明细。标签用 `#home` `#liquidity` `#sector` `#team` `#retail` `#value` 切换，图表在标签首次打开时才绘制；数据告警、板块口径、尾盘来源等放在页脚。数据源是 tushare + FRED，没有数据库、没有后台服务。
 设计依据见 `docs/superpowers/specs/2026-11-06-market-dashboard-design.md`（与 `docs/reference/PROMPT.md` 冲突时以前者为准）。
 
 ## 运行
@@ -20,7 +20,7 @@ export FRED_API_KEY=你的key             # 可选；没有则退回 FRED 公开
 ```
 
 ```
-python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMDD] [--demo]
+python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMDD] [--eco-cal data/eco_cal.json] [--demo]
 ```
 
 | 参数 | 说明 |
@@ -28,6 +28,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 | `--date` | 目标日期，缺省为北京时间当天。非交易日、或当天日线还没出，自动回退到「日线有数据的最近交易日」（最多回看 3 个开市日） |
 | `--out` | 输出路径 |
 | `--round-start` | 国家队「本轮」起点，缺省为交易日往前 38 个自然日 |
+| `--eco-cal` | 财经日历存档路径，缺省 `data/eco_cal.json`；`--demo` 时不使用 |
 | `--demo` | 随机模拟数据，页面顶部有红色横幅「当前为随机模拟数据」；不访问任何网络 |
 
 - 日志用 `logging`：INFO 打印结果，WARNING 记录缺失数据与降级；所有 WARNING 会汇总进页面数据 `meta.warnings`。
@@ -54,17 +55,17 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 2. Settings → Pages → Build and deployment → Source 选 **GitHub Actions**。
 3. Actions 页手动点一次 `build`（`workflow_dispatch`）确认成功，Pages 地址能从外网打开。
 
-**每天一次定时运行**：每个工作日北京时间 **21:30**（cron `30 13 * * 1-5`，UTC）。晚于原来的 20:30，是因为筹码数据（`cyq_perf`）每天 20–21 点才更新。此时日线、资金流、板块流向、韭菜浓度、龙虎榜、尾盘分钟线基本都已发布。仍会晚一天的是数据源本身的节奏：两融（交易所次日才发齐）、外盘日线（布伦特、美元指数、联邦基金期货）、深交所 ETF 份额；它们显示最近可用日期，并在页脚「数据告警」里说明。想提前看可以随时在 Actions 页手动 Run workflow。
+**每个工作日两次定时运行**：北京时间 **21:30**（cron `30 13 * * 1-5`，UTC）和 **09:00**（cron `0 1 * * 1-5`，补上前一晚美国数据，见「财经日历」）。21:30 那次晚于原来的 20:30，是因为筹码数据（`cyq_perf`）每天 20–21 点才更新。此时日线、资金流、板块流向、韭菜浓度、龙虎榜、尾盘分钟线基本都已发布。仍会晚一天的是数据源本身的节奏：两融（交易所次日才发齐）、外盘日线（布伦特、美元指数、联邦基金期货）、深交所 ETF 份额；它们显示最近可用日期，并在页脚「数据告警」里说明。想提前看可以随时在 Actions 页手动 Run workflow。
 
 每次都是整页重建，取「数据已就绪的最新交易日」；非交易日照常跑，内容不变。GitHub cron 高峰期可能延迟十几分钟到一小时。build job 超时 30 分钟，deploy job 10 分钟；`pages: write` / `id-token: write` 只授予 deploy job。
 
 **退出码与部署**：构建退出码 3（整体取数失败，见上文「运行」）会让 build job 失败，deploy job 不会运行，Pages 上保持上一份好页面；之后下一次定时运行会自动重试。看到 Actions 里 build 红了，先看日志里的 ERROR：多半是 token 失效或 tushare 不可用。
 
-**每日数据存档**：每次构建成功（非演示数据）后，当天页面用到的全部数据另存为 `history/<交易日 YYYY-MM-DD>.json`，由 `github-actions[bot]` 提交回 `main`（提交信息 `data: 存档 2026-11-06`）。同一交易日再跑会覆盖成最新一版，之前的版本留在 Git 历史里。文件里 `meta.code_version` 是当时代码的提交号，以后改了规则能分清哪些天按旧规则算。存档步骤失败不影响页面发布（运行页显示黄色提示）。本地改代码前先 `git pull`，因为机器人每天会往 `main` 提交。用法：`python build.py --archive history`（`--demo` 时不存）。
+**每日数据存档**：每次构建成功（非演示数据）后，当天页面用到的全部数据另存为 `history/<交易日 YYYY-MM-DD>.json`，由 `github-actions[bot]` 提交回 `main`（提交信息 `data: 存档 2026-11-06`）。同一交易日再跑会覆盖成最新一版，之前的版本留在 Git 历史里。文件里 `meta.code_version` 是当时代码的提交号，以后改了规则能分清哪些天按旧规则算。同一步骤还会提交 `data/eco_cal.json`（财经日历存档，见「财经日历」）。存档步骤失败不影响页面发布（运行页显示黄色提示）。本地改代码前先 `git pull`，因为机器人每天会往 `main` 提交。用法：`python build.py --archive history`（`--demo` 时不存）。
 
 **60 天无活动会停掉定时任务**：GitHub 会在公开仓库 60 天没有任何仓库活动（push、PR 等）后自动停用定时（`schedule`）工作流。每日存档提交本身算仓库活动，正常运转时不会触发；若连续多日构建失败没有存档，仍可能被停。恢复方法：仓库 Actions 页 → 左侧选 `build` → 点页面上的 **Enable workflow**（或随手提交一次改动再手动 Run workflow）。建议每个月左右有一次提交，或手动运行一次。
 
-**launchd 兜底只在 Actions 连不上 tushare 时才需要**（海外机房 IP 被限等）：此时改为本机 macOS `launchd` 在同样三个时间运行 `build.py`，再把 `site/index.html` 推到 Pages 分支，代价是那三个时间点 Mac 需要开机联网。Actions 能正常取数就不要用这个方案。
+**launchd 兜底只在 Actions 连不上 tushare 时才需要**（海外机房 IP 被限等）：此时改为本机 macOS `launchd` 在同样的时间运行 `build.py`，再把 `site/index.html` 推到 Pages 分支，代价是那三个时间点 Mac 需要开机联网。Actions 能正常取数就不要用这个方案。
 
 ## 各面板口径
 
@@ -83,11 +84,12 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 - **流动性投票**（自定口径，阈值见 `config.VOTE`）：① 全市场成交额 ÷ 前 20 日均额（> 1.10 松，< 0.90 紧）；② 两融余额近 5 个交易日变化（> +0.5% 松，< −0.5% 紧）；③ 大盘主力净流入近 5 日累计（> 0 松，< 0 紧）；④ Shibor 1W 较 20 日均值（低 5bp 以上松，高 5bp 以上紧）。页面逐项展示。
 - 场内资金卡片：全市场成交额（亿元，剔除北交所）、两融余额（沪深北合计；**次日 8:30 才出前一日数据**，卡片标注数据日期）、大盘主力净流入（`moneyflow_mkt_dc`，东方财富口径，亿元）、涨停 / 跌停家数（`limit_list_d` 精确值，市场体温面板展示的涨停 / 跌停家数同口径；取不到时体温面板回退为按涨跌幅近似并记 WARNING）、龙虎榜机构席位净买入（亿元，仅取最近 5 个交易日）。
-- 宏观 / 价格卡片（`liquidity.macro`，只展示、不参与投票）：Shibor 隔夜 / 1W / 1Y（1Y 作同业存单参考，`shibor`）、DR007（`repo_daily` `DR007.IB` 加权利率，%）、DR001−政策利率（bp，`DR001.IB` 加权利率减当日政策利率）、R007−DR007（bp，`R007.IB` 减 `DR007.IB`，按日对齐）、M1 同比与 M2 同比（`cn_m`，%，月度）、社融存量同比（`sf_month` 的 `stk_endval` 当月 ÷ 12 个月前 − 1，%，月度）、10 年国债期货、布伦特原油（`fx_daily` `UKOIL`）。**政策利率锚在 `config.POLICY_RATES`（生效日、利率、名称），央行调整时需手工在末尾追加一行**；某日适用利率 = 生效日 ≤ 该日的最后一行，早于第一行的日期不出值。目前为 2026-11-02 起隔夜逆回购 1.25%。
+- 宏观 / 价格卡片（`liquidity.macro`，只展示、不参与投票）：Shibor 隔夜 / 1W / 1Y（1Y 作同业存单参考，`shibor`）、DR007（`repo_daily` `DR007.IB` 加权利率，%）、DR001−政策利率（bp，`DR001.IB` 加权利率减当日政策利率）、R007−DR007（bp，`R007.IB` 减 `DR007.IB`，按日对齐）、M1 同比与 M2 同比（`cn_m`，%，月度）、社融存量同比（`sf_month` 的 `stk_endval` 当月 ÷ 12 个月前 − 1，%，月度）、CPI 同比（`cn_cpi` 的 `nt_yoy`，%，月度）、PPI 同比（`cn_ppi` 的 `ppi_yoy`，%，月度）、10 年国债期货、布伦特原油（`fx_daily` `UKOIL`）。**政策利率锚在 `config.POLICY_RATES`（生效日、利率、名称），央行调整时需手工在末尾追加一行**；某日适用利率 = 生效日 ≤ 该日的最后一行，早于第一行的日期不出值。目前为 2026-11-02 起隔夜逆回购 1.25%。
 - 大类资产条（总览与流动性标签页的指数条下方，`assets`）：黄金（`sge_daily`，元/克）、原油（上海原油主力，元/桶）、10 年国债期货（元）、美债 10 年（`us_tycr`，%，变化按 bp）、美元指数（`fx_daily` `USDOLLAR`，FXCM 点位，非 DXY）、离岸人民币（`fx_daily` `USDCNH.FXCM`，元/美元，数值涨 = 人民币贬）；显示最新值与近 1 / 4 / 13 周（往前 5 / 20 / 65 个观测）变化，价格类为 %、美债为 bp。**中债收益率曲线 `yc_cb` 本账号无权限，所以「债」用 10 年国债期货价格（价格涨 = 收益率降）。**
 - **10 年国债期货（`T.CFX` 主连收盘价）只是收益率的反向代理**：价格涨 = 收益率降，不是收益率本身。
 - **外围 · 美元流动性**（FRED + tushare）：美联储净流动性 = WALCL − WTREGEN − RRPONTSYD，统一为十亿美元并按周对齐，展示当前值与 4 周变化；银行准备金 WRESBAL；联邦基金有效利率 DFF 与 30 天联邦基金期货隐含利率（`100 − FED30D`）比较，差 < −10bp 标「预期降息」、> +10bp 标「预期加息」，其余「预期按兵不动」（阈值是本项目的取舍）；美债 2 年 / 10 年、美元指数（`fx_daily` `USDOLLAR`，是 FXCM 美元指数、点位在 12000 上下，**不是** ICE 的 DXY）、美股三大指数。`fx_daily` 的最新一根常是刚开盘、尚未收完的残缺日线（tick 数极少），会被丢弃并记 WARNING，取前一根，所以这类卡片的日期可能比其他卡片早一天。
-- 外围新增 6 张卡（FRED，只展示）：TGA 财政部账户（`WTREGEN` ÷ 1000，十亿美元）、隔夜逆回购 ON RRP（`RRPONTSYD`，十亿美元）——两者已计入净流动性，不另计分；SOFR−IORB（bp，`SOFR` 减 `IORB`，按日对齐）、NFCI 金融条件（`NFCI`，周频，负值 = 偏宽松）、美国高收益债利差（`BAMLH0A0HYM2`，%）、美债 10 年实际利率（`DFII10`，%）。
+- 外围新增 6 张卡（FRED，只展示）：TGA 财政部账户（`WTREGEN` ÷ 1000，十亿美元）、隔夜逆回购 ON RRP（`RRPONTSYD`，十亿美元）——两者已计入净流动性，不另计分；SOFR−IORB（bp，`SOFR` 减 `IORB`，按日对齐）、NFCI 金融条件（`NFCI`，周频，负值 = 偏宽松）、美国高收益债利差（`BAMLH0A0HYM2`，%）、美债 10 年实际利率（`DFII10`，%）；再新增 4 张美国宏观卡（FRED，只展示，月度）：美国 CPI 同比（`CPIAUCSL`，自算同比，%）、美国 PPI 同比（`PPIFIS`，自算同比，%）、美国非农新增（`PAYEMS` 月差分，千人）、美国失业率（`UNRATE`，%）。
+- 上述 6 张新卡（中国 CPI / PPI，美国 CPI / PPI / 非农 / 失业率）各带 24 个月迷你走势，并有一行「下次公布：…」，取自财经日历（见下节）。美国 4 张在日历里没有未来条目时，退回 FRED 公布日程（release id：CPI 10、PPI 46、就业形势 50；需要 `FRED_API_KEY`），这种来源只有日期没有时刻，写作「（时间待定）」；两处都找不到就不写这一行，宁缺勿错。
 - 政策工具表：见下文「`data/policy_ops.csv` 维护方法」。
 - **新闻时间线目前暂时下线**（`config.NEWS_ENABLED = False`）：构建不调用 `major_news`、页面不显示这一块，payload 里 `news.status` 为 `disabled`；以下是恢复后的行为，把开关改回 `True` 即可。
 - 新闻时间线：`major_news` 最近 7 个自然日，**只留影响资金流动性的标题**，分「国内政策 / 外围」两个页签；只列标题与原文链接，**不做任何分析或判断**。规则（词表都在 `config.py`）：标题含 `NEWS_EXCLUDE`（立案、处罚、黄金、国资委等杂讯）→ 丢弃；含 `NEWS_US_MARKERS`（美国、美联储、美债、美元…）→ 外围，且须命中 `NEWS_KW_EXTERNAL`（美联储、加息 / 降息、非农、CPI、美债、美元指数、RRP 等），所以「xx 亿美元」这类金额新闻不会进来；含 `NEWS_FOREIGN_MARKERS`（英国、日本、欧元等）→ 丢弃，外围只看美国；其余 → 国内，须命中 `NEWS_KW_DOMESTIC`（互换便利、再贷款、汇金 / 平准、降准、LPR、MLF、逆回购、净投放、货币政策、特别国债、印花税等）。原油、关税、地缘、证监会、国务院、财政部这类宽泛词已不再作为关键词。地区标记是子串匹配，加词时注意别误伤（如「日央行」会命中「11月6日央行开展…」，所以没用）。同标题去重；标题同时含「互换便利 / 再贷款」且含金额数字的会打「疑似新操作 · 请核对 policy_ops.csv」标签。`major_news` 单次最多 800 行且有日 / 小时配额，代码从最新时间向前翻页并以调用次数封顶（见上文「接口配额」）。
@@ -151,6 +153,20 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 - **套牢盘**：复用上面的获利盘（`cyq_perf` 按流通市值加权，剔除北交所）；套牢盘 = 100 − 获利盘，≥ 70 偏重、≤ 30 偏轻；分沪深主板 / 创业板 / 科创板三块，另给获利盘不到 10% 的股票占比（按只数，不加权）。走势取近 60 个开市日、每 5 日一点，权重统一用最新一天的流通市值；这是按换手推算的筹码估算，不是真实持仓。
 - **融资是否干净**：`margin`（`rzye`、`rzmre`，仅沪深两所）与 `daily_info`（沪深两市 `float_mv`、`amount`，亿元）；杠杆率 = 融资余额 ÷ 流通市值，融资买入占成交 = 融资买入额 ÷ 成交额取 5 日均，各自在近 3 年的分位都 < 40 为干净、都 > 70 为拥挤，其余中性；另给距近 250 个观测高点的回落与近 5 日余额变化。交易所数不足的日期整日丢弃（最新一天常只发布了一个交易所）。
 
+### 财经日历
+
+「日历」标签页（估值·筹码之后）按月份显示中国、美国重要经济数据与讲话的公布时间，只摆事实：圆点只用中性色（中国橙、美国蓝），大圆点表示重要事件；点某一天弹出当天清单，列出时间（北京时间）、中/美、事件、前值 · 预期 · 公布。不判断好坏，不进流动性指数。
+
+- **数据源与白名单**：tushare `eco_cal`。要看哪些事件写在 `config.ECO_CAL_ITEMS`（中国 12 项、美国 17 项），逻辑在 `econ_calendar.py`。
+- **清洗规则**：
+  - 国家按**事件名**的正则判定，不使用 `eco_cal` 自带的 country 字段（实测会标错）。
+  - 时间分钟数不是 00 / 15 / 30 / 45 的视为占位，数据类事件显示「时间待定」；讲话和 FOMC 保留原时间。
+  - 去重：同一事件同一天只留一条（有公布值的优先）；同一事件同一报告期在 45 天内只留一条（有公布值的优先，再取日期较晚的）。已知副作用：美国 GDP 初值、修正值、终值共用同一报告期（如「第三季度」）且相隔不到 45 天，日历里只会留下其中一条。
+- **存档文件 `data/eco_cal.json`**（`{covered_from, events}`）：日历的底稿，由构建机器人和每日数据存档一起提交回仓库。`eco_cal` 取数失败时，页面直接用存档文件并提示「本次未能刷新，显示的是存档数据」。命令行参数 `--eco-cal PATH` 可改路径（默认 `data/eco_cal.json`；`--demo` 不用）。
+- **刷新与回填**：每次构建刷新 [今天 − 14 天，今天 + 60 天]（中国 3 段 × 31 天、美国 11 段 × 7 天，约 14 次调用），剩余额度再向前回填，目标回到今天 − 182 天。单次构建最多调用 `config.ECO_CAL_MAX_CALLS`（30）次，所以半年回填要分好几次构建才补完；某段返回 100 行（接口上限）会拆开重取。
+- **两次构建**：21:30 那次是日常构建；09:00 那次专门补上前一晚（北京时间夜里）公布的美国数据，所以美国数据最晚在下一个工作日早上进入看板。
+- **注意**：美国 CPI、非农等是否每次都能在 `eco_cal` 里取到取决于接口，缺失时「下次公布」退回 FRED 公布日程（见「流动性」里的宏观卡片说明）。
+
 ## 用到的 tushare 接口与权限
 
 积分要求以 tushare 官网接口文档为准，下表为大致数量级，不同账号不同；`stk_mins`、`major_news` 等另有单独权限或限频。
@@ -171,10 +187,11 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 | 估值·筹码：市场流通市值与成交额 | `daily_info`（`SH_MARKET`、`SZ_MARKET`） | 亿元；缺一个市场的日期丢弃 |
 | 估值·筹码：融资明细 | `margin`（`rzye`、`rzmre`） | 只取 SSE、SZSE，元 ÷ 1e8 |
 | 涨跌停 / 龙虎榜 | `limit_list_d`、`top_inst` | |
-| 货币与宏观 | `shibor`（含 1Y）、`cn_m`（M1/M2）、`repo_daily`（`DR001.IB`、`DR007.IB`、`R007.IB`）、`sf_month` | 回购利率取 `weight` 加权利率，每日 18:30–19 点更新 |
+| 货币与宏观 | `shibor`（含 1Y）、`cn_m`（M1/M2）、`repo_daily`（`DR001.IB`、`DR007.IB`、`R007.IB`）、`sf_month`、`cn_cpi`、`cn_ppi` | 回购利率取 `weight` 加权利率，每日 18:30–19 点更新 |
 | 国债期货 / 外汇商品 | `fut_daily`（`T.CFX`）、`fx_daily`（`UKOIL`、`USDOLLAR`、`FED30D`、`USDCNH.FXCM`） | |
 | 金价、油价（大类资产条） | `sge_daily`（`Au99.99`，元/克，每日 18–19 点更新）、`fut_daily`（`SC.INE` 原油主力，元/桶，17–18 点更新） | 变化按往前 5 / 20 / 65 个观测自算；取不到显示「—」并记告警 |
 | 美股 / 美债 | `index_global`、`us_tycr` | |
+| 财经日历 | `eco_cal` | 见下节「财经日历」；每次构建约 14 次调用 |
 | 新闻 | `major_news` | 单次最多 800 行；40 次/天、30 次/小时 |
 
 **明确不用**（本账号无权限或限频，且「先不用」）：`yc_cb`、`hm_detail`、`news`、`cctv_news`、`monetary_policy`、`etf_share_size`、`etf_mins`、`us_daily`。
@@ -183,7 +200,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 - 设置了 `FRED_API_KEY` 时走官方 API：`https://api.stlouisfed.org/fred/series/observations`（JSON）。
 - 未设置时退回公开 CSV（无需 key）：`https://fred.stlouisfed.org/graph/fredgraph.csv?id=<序列>&cosd=<起始日>`。2026-11 起该地址对脚本请求经常直接断开连接（本机与 GitHub Actions 都如此），所以线上应配 key。
-- 序列：`WALCL`（美联储总资产，百万美元，周频）、`WTREGEN`（财政部 TGA 账户，百万美元，周频）、`RRPONTSYD`（隔夜逆回购，十亿美元，日频）、`WRESBAL`（银行准备金，百万美元，周频）、`DFF`（联邦基金有效利率，%，日频）；新增 `SOFR`（担保隔夜融资利率，%，日频）、`IORB`（准备金余额利率，%，日频）、`BAMLH0A0HYM2`（美国高收益债期权调整利差，%，日频）、`NFCI`（芝加哥联储金融状况指数，周频，负值偏宽松）、`DFII10`（10 年期 TIPS 实际收益率，%，日频）。
+- 序列：`WALCL`（美联储总资产，百万美元，周频）、`WTREGEN`（财政部 TGA 账户，百万美元，周频）、`RRPONTSYD`（隔夜逆回购，十亿美元，日频）、`WRESBAL`（银行准备金，百万美元，周频）、`DFF`（联邦基金有效利率，%，日频）；新增 `SOFR`（担保隔夜融资利率，%，日频）、`IORB`（准备金余额利率，%，日频）、`BAMLH0A0HYM2`（美国高收益债期权调整利差，%，日频）、`NFCI`（芝加哥联储金融状况指数，周频，负值偏宽松）、`DFII10`（10 年期 TIPS 实际收益率，%，日频）；`CPIAUCSL`（美国 CPI，月频）、`PPIFIS`（美国 PPI，月频）、`PAYEMS`（非农就业人数，千人，月频）、`UNRATE`（失业率，%，月频）。另调用 FRED 的 releases/dates 接口取公布日程（CPI 10、PPI 46、就业形势 50），只在财经日历没有未来条目时用。
 - 周频数据天然滞后数日，各卡片标注自身数据日期。FRED 失败时对应卡片显示「无数据」，不影响其他部分。
 
 ## `data/policy_ops.csv` 维护方法
@@ -210,7 +227,9 @@ metrics_value.py       # 估值·筹码：PB 分位、套牢盘汇总、融资�
 summary.py             # 四句结论
 render.py / template.html   # 渲染单文件 HTML（ECharts 5.5.0 来自 cdnjs，其余内联）
 build.py               # 命令行入口：取数 → 计算 → 渲染
+econ_calendar.py       # 财经日历：白名单清洗、去重、存档、下次公布
 data/policy_ops.csv    # 手工维护的政策工具表
+data/eco_cal.json      # 财经日历存档（构建机器人自动提交）
 history/               # 每日数据存档（构建机器人自动提交，一个交易日一个 JSON）
 ```
 

@@ -3,6 +3,7 @@ name: build
 on:
   schedule:
     - cron: "30 13 * * 1-5"  # 每个工作日 21:30 北京时间跑一次（筹码数据 20–21 点才更新；此时资金流、板块、浓度、龙虎榜、尾盘基本已出）
+    - cron: "0 1 * * 1-5"  # 每个工作日 09:00 北京时间：补上前一晚美国数据（财经日历、美国 CPI/非农等卡片）
   workflow_dispatch:
 
 permissions:
@@ -31,12 +32,12 @@ jobs:
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-      - name: 存档当天数据到 history/
+      - name: 存档当天数据与财经日历
         continue-on-error: true  # 存档失败不影响页面发布，运行页会出现黄色提示
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add history
+          git add history data/eco_cal.json || git add history  # 日历存档文件还不存在时，只存 history
           if git diff --cached --quiet; then echo "存档无变化"; exit 0; fi
           git commit -q -m "data: 存档 $(git diff --cached --name-only | xargs -n1 basename | sed 's/\.json$//' | paste -sd ' ' -)"
           git pull -q --rebase origin main
