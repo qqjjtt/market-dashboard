@@ -410,7 +410,7 @@ git commit -m "feat: 财经日历分段取数、增量存档与 payload"
   - `date` 匹配 `^\d{6}$`；
   - `len(spark) <= 24`；
   - `us_nfp` 的 unit 为 `"千人"`。
-- **`test_card_next_note_from_calendar(tmp_path)`**：demo 跑，`now` 设为 2026-11-08 20:00，`cn_cpi` 卡的 note 以 `"下次公布：11/9 周一 09:30"` 开头（demo 的 eco_cal 里有 11/9 09:30 的 CPI）。
+- **`test_card_next_note_from_calendar()`**：直接调用 `build.collect(DemoSource(), DemoFred(), DATE, None, True, now=datetime(2026, 11, 8, 20, 0, tzinfo=SH))`。`run()` 走 `main`，用的是真实当前时间，这里不能用。断言 `cn_cpi` 卡的 note 以 `"下次公布：11/9 周一 09:30"` 开头（demo 的 eco_cal 里有 11/9 09:30 的 CPI）。下面两个美国卡片的测试也照这个写法传 `now`。
 - **`test_us_card_note_falls_back_to_fred(tmp_path, monkeypatch)`**：
   - 让 demo 的 eco_cal 不返回美国 CPI；
   - `DemoFred.release_dates` 返回 `["20261210"]`；
