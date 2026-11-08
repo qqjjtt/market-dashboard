@@ -70,8 +70,11 @@ def normalize(rows):
     return out
 
 
-def _best(group):
-    """group: [(idx, ev)]。优先级：有 value > 出现更晚 > 日期更晚。"""
+def _best(group, date_first=False):
+    """group: [(idx, ev)]。第一轮（同日）：有 value > 出现更晚；
+    第二轮（改期，date_first=True）：有 value > 日期更晚 > 出现更晚（单次取数内行序不可靠）。"""
+    if date_first:
+        return max(group, key=lambda p: (p[1]["value"] is not None, p[1]["date"], p[0]))
     return max(group, key=lambda p: (p[1]["value"] is not None, p[0], p[1]["date"]))
 
 
@@ -99,9 +102,9 @@ def dedupe(events):
             if (_day(p[1]["date"]) - _day(cluster[-1][1]["date"])).days <= _RESCHEDULE_DAYS:
                 cluster.append(p)
             else:
-                final.append(_best(cluster))
+                final.append(_best(cluster, True))
                 cluster = [p]
-        final.append(_best(cluster))
+        final.append(_best(cluster, True))
 
     res = [p[1] for p in final]
     res.sort(key=lambda e: (e["date"], e["time"] or "99:99", e["region"], e["item"]))

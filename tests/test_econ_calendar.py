@@ -60,7 +60,7 @@ def test_normalize_builds_events_and_drops_noise():
 def test_dedupe_reschedule_prefers_value():
     a = ev(item="cn_m2", date="20261014", period="九月", value="7.2%")
     b = ev(item="cn_m2", date="20261015", period="九月", value=None)
-    for inp in ([a, b], [b, a]):
+    for inp in ([a, b], [b, a]):  # 无值的旧日期行在前/在后都一样
         out = dedupe(inp)
         assert [(e["date"], e["value"]) for e in out if e["item"] == "cn_m2"] == [("20261014", "7.2%")]
 
@@ -68,7 +68,7 @@ def test_dedupe_reschedule_prefers_value():
 def test_dedupe_reschedule_no_value_keeps_latest_date():
     a = ev(item="cn_m2", date="20261014", period="九月")
     b = ev(item="cn_m2", date="20261020", period="九月")
-    assert [e["date"] for e in dedupe([a, b])] == ["20261020"]
+    assert [e["date"] for e in dedupe([b, a])] == ["20261020"]
 
 
 def test_dedupe_same_period_far_apart_kept():
