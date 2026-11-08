@@ -183,3 +183,48 @@ VALUE = dict(pb_years=10, low=30, high=70,                 # 平均分位 <30 �
              trapped_hi=70, trapped_lo=30,                 # 套牢盘 ≥70 偏重，≤30 偏轻
              margin_years=3, buy_ma=5, dd_window=250,      # 融资分位窗口 3 年；买入占比取 5 日均；回落相对近 250 个观测高点
              margin_clean=40, margin_crowd=70)             # 两项分位都 <40 干净，都 >70 拥挤
+
+# ---------- 财经日历（只摆事实；地区由白名单决定，不用 eco_cal 的 country 字段）----------
+def _eco(key, region, label, pattern, major, kind="data"):
+    return dict(key=key, region=region, label=label, pattern=pattern, major=major, kind=kind)
+
+
+ECO_CAL_ITEMS = [
+    _eco("cn_cpi_yoy", "cn", "CPI 年率", r"^中国CPI年率", True),
+    _eco("cn_cpi_mom", "cn", "CPI 月率", r"^中国CPI月率", False),
+    _eco("cn_ppi_yoy", "cn", "PPI 年率", r"^中国PPI年率", True),
+    _eco("cn_m2", "cn", "M2 年率", r"^中国M2货币供应年率", True),
+    _eco("cn_loans", "cn", "新增人民币贷款", r"^中国新增人民币贷款", True),
+    _eco("cn_tsf", "cn", "社会融资规模", r"^中国社会融资规模", True),
+    _eco("cn_pmi_mfg", "cn", "官方制造业 PMI", r"^中国官方制造业PMI", False),
+    _eco("cn_pmi_non", "cn", "官方非制造业 PMI", r"^中国官方非制造业PMI", False),
+    _eco("cn_gdp", "cn", "GDP 年率", r"^中国季度GDP年率", True),
+    _eco("cn_lpr", "cn", "LPR", r"^中国央行贷款市场报价利率", True),
+    _eco("cn_ip", "cn", "工业增加值年率", r"^中国规模以上工业增加值年率", False),
+    _eco("cn_retail", "cn", "社零年率", r"^中国社会消费品零售总额年率", False),
+    _eco("us_cpi_yoy", "us", "CPI 年率", r"^美国未季调CPI年率", True),
+    _eco("us_cpi_mom", "us", "CPI 月率", r"^美国CPI月率", False),
+    _eco("us_core_cpi_yoy", "us", "核心 CPI 年率", r"^美国未季调核心CPI年率", False),
+    _eco("us_core_cpi_mom", "us", "核心 CPI 月率", r"^美国核心CPI月率", False),
+    _eco("us_ppi_yoy", "us", "PPI 年率", r"^美国PPI年率", True),
+    _eco("us_ppi_mom", "us", "PPI 月率", r"^美国PPI月率", False),
+    _eco("us_nfp", "us", "非农就业人数", r"^美国季调后非农就业人口变动", True),
+    _eco("us_unrate", "us", "失业率", r"^美国失业率", False),
+    _eco("us_claims", "us", "初请失业金人数", r"^美国初请失业金人数$", False),
+    _eco("us_pce_yoy", "us", "PCE 年率", r"^美国PCE物价指数年率", False),
+    _eco("us_core_pce_mom", "us", "核心 PCE 月率", r"^美国核心PCE物价指数月率", False),
+    _eco("us_gdp", "us", "实际 GDP 年化季率", r"^美国实际GDP年化季率", False),
+    _eco("us_fomc_rate", "us", "FOMC 利率决议", r"^美联储利率决议", True, "event"),
+    _eco("us_fomc_stmt", "us", "FOMC 货币政策声明", r"^美联储FOMC货币政策声明", False, "event"),
+    _eco("us_fomc_presser", "us", "FOMC 新闻发布会", r"^美国联邦公开市场委员会新闻发布会", False, "event"),
+    _eco("us_fomc_minutes", "us", "FOMC 会议纪要", r"(FOMC|联邦公开市场委员会).*会议纪要", True, "event"),
+    _eco("us_powell", "us", "鲍威尔讲话", r"鲍威尔", False, "event"),
+]
+del _eco
+
+ECO_CAL_PAST_DAYS = 14        # 每次构建刷新：今天往前
+ECO_CAL_FUTURE_DAYS = 60      # 每次构建刷新：今天往后
+ECO_CAL_KEEP_DAYS = 182       # 回填目标 + payload 保留：今天往前约 6 个月
+ECO_CAL_MAX_CALLS = 30        # 单次构建 eco_cal 调用上限
+ECO_CAL_CHUNK_DAYS = {"中国": 31, "美国": 7}   # 按 eco_cal 的 country 参数分段取数
+ECO_CAL_ROW_LIMIT = 100       # 接口单次上限；返回正好 100 条视为可能被截断
