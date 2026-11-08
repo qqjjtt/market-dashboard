@@ -324,7 +324,8 @@ def _exact_limits(c: Ctx, d: str) -> dict:
 def _next_note(c: Ctx, item: str, fred_key: str | None, series=None) -> str:
     """「下次公布：…」：先查财经日历；没有再用 FRED 公布日程（仅日期）；都没有 → 空串。"""
     try:
-        ev = econ_calendar.next_release(c.shared.get("eco_events", []), item, c.now)
+        events = c.shared.get("eco_events", [])
+        ev = econ_calendar.next_release(events, item, c.now)
         if ev:
             return econ_calendar.format_next(ev["date"], ev["time"])
         if not fred_key:
@@ -338,10 +339,20 @@ def _next_note(c: Ctx, item: str, fred_key: str | None, series=None) -> str:
             except Exception as e:  # noqa: BLE001
                 log.warning("FRED 公布日程 %s 获取失败（%s）", rid, type(e).__name__)
                 cache[rid] = None
-        today = c.now.astimezone(SH).strftime("%Y%m%d")
-        last_m = series.index[-1][:6] if series is not None and len(series) else None
+        # FRED 日程含今天、且不带时间：已公布的日期必须排除，宁可不写
+        n = c.now.astimezone(SH)
+        today = n.strftime("%Y%m%d")
+        done = max((e["date"] for e in events if e["item"] == item and econ_calendar.is_released(e, c.now)),
+                   default="")
+        min_m = None
+        if series is not None and len(series):   # 月份 M 的数据在 M+1 公布 → 下一次至少在 M+2
+            y, m = int(series.index[-1][:4]), int(series.index[-1][4:6]) + 2
+            y, m = (y + 1, m - 12) if m > 12 else (y, m)
+            min_m = f"{y}{m:02d}"
         for d in cache[rid] or []:
-            if d >= today and (last_m is None or d[:6] > last_m):
+            if d < today or d <= done or (d == today and n.strftime("%H:%M") >= "20:30"):
+                continue
+            if min_m is None or d[:6] >= min_m:
                 return econ_calendar.format_next(d, None)
     except Exception as e:  # noqa: BLE001
         log.warning("下次公布时间生成失败（%s）", type(e).__name__)

@@ -941,9 +941,16 @@ def test_card_next_note_from_calendar():
     assert _card(data, "macro", "cn_cpi")["note"].startswith("下次公布：11/9 周一 09:30")
 
 
+class _FredToSep(DemoFred):
+    """真实节奏：11 月初 FRED 只到 9 月（10 月 CPI 11 月中旬才公布）。"""
+    def series(self, series_id, start):
+        s = super().series(series_id, start)
+        return None if s is None else s[s.index <= pd.Timestamp("2026-09-01")]
+
+
 def test_us_card_note_falls_back_to_fred(monkeypatch):
     monkeypatch.setattr(DemoFred, "release_dates", lambda self, rid, start: ["20261210"])
-    data = _collect(src=_NoUsCpiSource())
+    data = _collect(src=_NoUsCpiSource(), fred=_FredToSep())
     assert _card(data, "external", "us_cpi")["note"] == "下次公布：12/10 周四（时间待定）"
 
 
@@ -951,3 +958,52 @@ def test_us_card_note_absent_when_no_schedule(monkeypatch):
     monkeypatch.setattr(DemoFred, "release_dates", lambda self, rid, start: None)
     data = _collect(src=_NoEcoSource())
     assert _card(data, "external", "us_cpi")["note"] == ""
+
+
+# ---------------------------------------------------------------- C1：FRED 退路不能写出当天已公布的日期
+
+class _Rel:
+    def __init__(self, dates):
+        self.dates = dates
+
+    def release_dates(self, rid, start):
+        return list(self.dates)
+
+
+def _note_ctx(now, dates, events=()):
+    from types import SimpleNamespace
+    return SimpleNamespace(now=now, fred=_Rel(dates), shared={"eco_events": list(events)})
+
+
+def _ser_to(month):
+    return pd.Series([1.0, 2.0], index=[str(int(month) - 1), month])
+
+
+_CPI_DAY = ["20261210", "20270113"]
+
+
+@pytest.mark.parametrize("last_m", ["202611", "202610"])   # FRED 已更新到公布月−1 / 还停在公布月−2
+def test_fred_fallback_release_day_evening_never_today(last_m):
+    c = _note_ctx(datetime(2026, 12, 10, 22, 0, tzinfo=build.SH), _CPI_DAY)
+    note = build._next_note(c, "us_cpi_yoy", "us_cpi", _ser_to(last_m))
+    assert note in ("", "下次公布：1/13 周三（时间待定）")
+    assert "12/10" not in note
+
+
+def test_fred_fallback_skips_dates_up_to_released_calendar_row():
+    released = {"date": "20261210", "time": "21:30", "item": "us_cpi_yoy", "value": "2.9%"}
+    c = _note_ctx(datetime(2026, 12, 10, 21, 45, tzinfo=build.SH), _CPI_DAY, [released])
+    assert build._next_note(c, "us_cpi_yoy", "us_cpi", _ser_to("202610")) == "下次公布：1/13 周三（时间待定）"
+
+
+def test_fred_fallback_release_day_morning():
+    now = datetime(2026, 12, 10, 9, 0, tzinfo=build.SH)
+    # 日历里没有这一行、FRED 还停在公布月−2 → 当天日期可以写
+    c = _note_ctx(now, _CPI_DAY)
+    assert build._next_note(c, "us_cpi_yoy", "us_cpi", _ser_to("202610")) == "下次公布：12/10 周四（时间待定）"
+    # FRED 已有公布月−1 的数据 → 下一次至少在下下个月
+    c = _note_ctx(now, _CPI_DAY)
+    assert build._next_note(c, "us_cpi_yoy", "us_cpi", _ser_to("202611")) == "下次公布：1/13 周三（时间待定）"
+    # 卡片无数据 → 只要求不早于今天
+    c = _note_ctx(now, _CPI_DAY)
+    assert build._next_note(c, "us_cpi_yoy", "us_cpi", pd.Series(dtype=float)) == "下次公布：12/10 周四（时间待定）"
