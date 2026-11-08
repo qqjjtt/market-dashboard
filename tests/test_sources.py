@@ -682,3 +682,35 @@ def test_margin_detail_excludes_bse_scales_and_drops_partial_day(caplog):
     assert m.rzye.iloc[0] == pytest.approx(20688.0) and m.rzmre.iloc[0] == pytest.approx(1500.0)
     assert any("margin" in r.getMessage() and "20261105" in r.getMessage() for r in caplog.records)
     assert make(FakePro(margin=pd.DataFrame()))[0].margin_detail("a", "b").empty
+
+
+def test_eco_cal_columns_and_order():
+    cols = ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+    raw = pd.DataFrame({
+        "date": ["20261113", "20261109", "20261109"], "time": ["17:00", "09:30", "09:00"],
+        "country": ["中国"] * 3, "event": ["c", "b", "a"], "value": [None, "0.8%", "1%"],
+        "pre_value": ["1", "2", "3"], "fore_value": ["4", "5", "6"], "extra": [1, 2, 3]})
+    pro = FakePro(eco_cal=raw)
+    src, _ = make(pro)
+    df = src.eco_cal("20261101", "20261130", "中国")
+    assert list(df.columns) == cols
+    assert list(df["event"]) == ["a", "b", "c"]
+    name, kw = pro.calls[0]
+    assert name == "eco_cal"
+    assert kw["country"] == "中国" and kw["start_date"] == "20261101" and kw["end_date"] == "20261130"
+
+
+def test_eco_cal_empty_has_columns():
+    src, _ = make(FakePro(eco_cal=pd.DataFrame()))
+    assert list(src.eco_cal("20261101", "20261130", "美国").columns) == \
+        ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+
+
+def test_cn_cpi_ppi_columns():
+    pro = FakePro(cn_cpi=pd.DataFrame({"month": ["202610"], "nt_yoy": [0.2], "x": [1]}),
+                  cn_ppi=pd.DataFrame({"month": ["202610"], "ppi_yoy": [-1.0], "x": [1]}))
+    src, _ = make(pro)
+    assert list(src.cn_cpi("202601", "202610").columns) == ["month", "nt_yoy"]
+    assert list(src.cn_ppi("202601", "202610").columns) == ["month", "ppi_yoy"]
+    assert pro.calls[0][1]["fields"] == "month,nt_yoy" and pro.calls[1][1]["fields"] == "month,ppi_yoy"
+    assert pro.calls[0][1]["start_m"] == "202601"

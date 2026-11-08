@@ -339,6 +339,71 @@ class DemoSource:
         m1 = [round(float(5.0 + self._rng("m1", mo).normal(0, 0.4)), 1) for mo in months]
         return pd.DataFrame({"month": months, "m1_yoy": m1, "m2_yoy": vals})
 
+    # 财经日历 demo：事件名为真实风格，公布值只给早于 _ECO_TODAY 的事件
+    _ECO_COLS = ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+    _ECO_TODAY = "20261108"
+    _ZH_MONTHS = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"]
+
+    def _eco_events(self, country, d):
+        """某天（datetime）的 (time, event) 列表。"""
+        p = self._ZH_MONTHS[(d.month - 2) % 12]  # 上一个月
+        out = []
+        if country == "中国":
+            if d.day == 7:
+                out.append(("10:45", f"中国外汇储备(美元)({p})"))
+            elif d.day == 9:
+                out += [("09:30", f"中国CPI年率(%)(年度)({p})"), ("09:30", f"中国CPI月率(%)(月度)({p})"),
+                        ("09:30", f"中国PPI年率(%)(年度)({p})")]
+            elif d.day == 10:
+                out.append(("02:38", f"中国贸易帐(美元)({p})"))
+            elif d.day == 13:
+                out += [("17:00", f"中国M2货币供应年率(%)(年度)({p})"), ("17:00", f"中国新增人民币贷款(人民币)({p})"),
+                        ("17:00", f"中国社会融资规模(人民币十亿元)({p})")]
+        elif country == "美国":
+            if d.weekday() == 3:
+                out.append(("21:30", "美国初请失业金人数"))
+            if d.weekday() == 2:
+                out.append(("23:30", "美国当周EIA原油库存变动(桶)"))
+            if d.weekday() == 4 and d.day <= 7:
+                out += [("21:30", f"美国季调后非农就业人口变动({p})"), ("21:30", f"美国失业率({p})")]
+            if d.day == 12:
+                out += [("21:30", f"美国未季调CPI年率(%)(年度)({p})"), ("21:30", f"美国CPI月率(%)(月度)({p})")]
+        return out
+
+    def eco_cal(self, start, end, country):
+        rows = []
+        d, last = datetime.strptime(start, "%Y%m%d"), datetime.strptime(end, "%Y%m%d")
+        while d <= last:
+            ds = d.strftime("%Y%m%d")
+            for t, ev in self._eco_events(country, d):
+                r = self._rng("eco", ds, t, ev)
+                value = f"{r.normal(0.8, 0.5):.1f}%" if ds < self._ECO_TODAY else None
+                rows.append((ds, t, country, ev, value, f"{r.normal(0.8, 0.5):.1f}%", f"{r.normal(0.8, 0.5):.1f}%"))
+            d += timedelta(days=1)
+        df = pd.DataFrame(rows, columns=self._ECO_COLS)
+        if df.empty:
+            return df
+        df = df.sort_values(["date", "time"], kind="stable").reset_index(drop=True)
+        return df.head(config.ECO_CAL_ROW_LIMIT)
+
+    @staticmethod
+    def _months(start_m, end_m):
+        months, y, m = [], int(start_m[:4]), int(start_m[4:])
+        while f"{y}{m:02d}" <= end_m:
+            months.append(f"{y}{m:02d}")
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        return months
+
+    def cn_cpi(self, start_m, end_m):
+        months = self._months(start_m, end_m)
+        vals = [round(float(0.3 + self._rng("cpi", mo).normal(0, 0.4)), 1) for mo in months]
+        return pd.DataFrame({"month": months, "nt_yoy": vals})
+
+    def cn_ppi(self, start_m, end_m):
+        months = self._months(start_m, end_m)
+        vals = [round(float(-1.5 + self._rng("ppi", mo).normal(0, 0.6)), 1) for mo in months]
+        return pd.DataFrame({"month": months, "ppi_yoy": vals})
+
     def bond_fut_10y(self, start, end):
         s = self._slice(self._walk("bondfut", 108.5, 0.0015), start, end)
         return pd.DataFrame({"trade_date": list(s.index), "close": s.to_numpy().round(3)})
@@ -412,9 +477,13 @@ class DemoFred:
         "BAMLH0A0HYM2": ("B", 3.0, 0.01, 1.5, 7.0),        # %
         "NFCI": ("W-FRI", -0.5, 0.02, -1.5, 1.0),          # 点（加性）
         "DFII10": ("B", 1.9, 0.03, 0.2, 3.8),              # %（加性）
+        "CPIAUCSL": ("MS", 310.0, 0.003, 280, 360),        # 指数
+        "PPIFIS": ("MS", 145.0, 0.004, 120, 170),          # 指数
+        "PAYEMS": ("MS", 159000.0, 0.001, 150000, 170000),  # 千人
+        "UNRATE": ("MS", 4.1, 0.05, 3.0, 6.0),             # %（加性）
     }
     # 加性游走序列 -> 步长倍率
-    _ADDITIVE = {"RRPONTSYD": 1.0, "DFF": 0.3, "NFCI": 1.0, "DFII10": 0.3}
+    _ADDITIVE = {"RRPONTSYD": 1.0, "DFF": 0.3, "NFCI": 1.0, "DFII10": 0.3, "UNRATE": 1.0}
 
     def __init__(self, seed=7):
         self.seed = seed
@@ -435,3 +504,23 @@ class DemoFred:
         s = pd.Series(vals, index=idx, name=series_id)
         s = s[s.index >= pd.Timestamp(start)]
         return None if s.empty else s
+
+    # FRED release_id -> 公布日规则
+    _RELEASE_IDS = (10, 46, 50)
+
+    def release_dates(self, release_id, start):
+        """未来 3 个月的确定性公布日（YYYYMMDD 升序）：10=CPI 取 12 日，46=PPI 取 14 日，50=就业取当月第一个周五。"""
+        if release_id not in self._RELEASE_IDS:
+            return None
+        d0 = datetime.strptime(start, "%Y-%m-%d")
+        out, y, m = [], d0.year, d0.month
+        for _ in range(5):
+            if release_id == 50:
+                day = datetime(y, m, 1)
+                day += timedelta(days=(4 - day.weekday()) % 7)
+            else:
+                day = datetime(y, m, 12 if release_id == 10 else 14)
+            if day >= d0:
+                out.append(day.strftime("%Y%m%d"))
+            y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+        return out[:3]

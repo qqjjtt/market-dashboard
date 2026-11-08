@@ -14,6 +14,9 @@ log = logging.getLogger(__name__)
 FRED_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={id}&cosd={start}"
 FRED_API_URL = ("https://api.stlouisfed.org/fred/series/observations"
                 "?series_id={id}&observation_start={start}&api_key={key}&file_type=json")
+FRED_RELEASE_DATES_URL = ("https://api.stlouisfed.org/fred/release/dates?release_id={id}"
+                          "&realtime_start={start}&include_release_dates_with_no_data=true"
+                          "&sort_order=asc&api_key={key}&file_type=json")
 TIMEOUT = 20  # 秒
 
 
@@ -71,4 +74,21 @@ class FredSource:
             return out
         except Exception as e:  # noqa: BLE001
             log.warning("FRED %s 获取失败（%s，%s）", series_id, via, type(e).__name__)
+            return None
+
+    def release_dates(self, release_id, start):
+        """某 FRED release 自 start（YYYY-MM-DD）起的公布日（含尚无数据的未来日）。
+        返回 YYYYMMDD 升序去重列表；无 api_key（不发请求）、失败或无数据 → None（失败记 WARNING，只写异常类型）。"""
+        if not self.api_key:
+            return None
+        url = FRED_RELEASE_DATES_URL.format(id=release_id, start=start, key=self.api_key)
+        try:
+            rows = json.loads(self._fetch(url)).get("release_dates")
+            days = sorted({str(r["date"]).replace("-", "") for r in rows or [] if r.get("date")})
+            if not days:
+                log.warning("FRED release %s 没有公布日程数据", release_id)
+                return None
+            return days
+        except Exception as e:  # noqa: BLE001
+            log.warning("FRED release %s 公布日程获取失败（%s）", release_id, type(e).__name__)
             return None

@@ -167,6 +167,9 @@ NEWS_FOREIGN_MARKERS = ["英国", "英镑", "日本", "日元", "欧洲", "欧�
                         "菲律宾", "韩国", "澳洲", "澳大利亚", "加拿大", "瑞士", "印度"]  # 非美外围：外围只看美国
 
 FRED_SERIES = ["WALCL", "WTREGEN", "RRPONTSYD", "WRESBAL", "DFF", "SOFR", "IORB", "BAMLH0A0HYM2", "NFCI", "DFII10"]
+FRED_MACRO_SERIES = ["CPIAUCSL", "PPIFIS", "PAYEMS", "UNRATE"]   # 美国宏观月度序列（迷你走势）
+FRED_RELEASES = {"us_cpi": 10, "us_ppi": 46, "us_nfp": 50, "us_unrate": 50}   # FRED release_id：CPI / PPI / Employment Situation
+MACRO_SPARK_MONTHS = 24
 MAX_CALLS_PER_MIN = 200
 DISCLOSURE_MIN = 0.8
 SPARK_DAYS = 30

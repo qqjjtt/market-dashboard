@@ -405,6 +405,22 @@ class TushareSource:
         """社会融资规模存量（sf_month，stk_endval，月度）；同比由调用方按 12 个月前自算。"""
         return self._fetch("sf_month", ["month", "stk_endval"], start_m=start_m, end_m=end_m)
 
+    def eco_cal(self, start, end, country):
+        """财经日历（eco_cal）：某国家 [start, end] 的事件；按 (date, time) 升序。"""
+        cols = ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+        df = self._fetch("eco_cal", cols, country=country, start_date=start, end_date=end)
+        return df.sort_values(["date", "time"], kind="stable").reset_index(drop=True)
+
+    def cn_cpi(self, start_m, end_m):
+        """全国居民消费价格指数（cn_cpi，月度）：nt_yoy 全国同比 %。"""
+        return self._fetch("cn_cpi", ["month", "nt_yoy"], start_m=start_m, end_m=end_m,
+                           fields="month,nt_yoy")
+
+    def cn_ppi(self, start_m, end_m):
+        """工业生产者出厂价格指数（cn_ppi，月度）：ppi_yoy 同比 %。"""
+        return self._fetch("cn_ppi", ["month", "ppi_yoy"], start_m=start_m, end_m=end_m,
+                           fields="month,ppi_yoy")
+
     def bond_fut_10y(self, start, end):
         return self._fetch("fut_daily", ["trade_date", "close"], ts_code="T.CFX",
                            start_date=start, end_date=end)

@@ -91,3 +91,32 @@ def test_fred_failure_warning_names_the_path(caplog):
     msgs = [r.getMessage() for r in caplog.records]
     assert any("公开 CSV" in m for m in msgs) and any("官方 API" in m for m in msgs)
     assert all("k123" not in m for m in msgs)
+
+
+def test_release_dates_parses_json():
+    urls = []
+
+    def fetch(url):
+        urls.append(url)
+        return '{"release_dates":[{"release_id":10,"date":"2026-12-10"},{"release_id":10,"date":"2026-11-13"},{"release_id":10,"date":"2026-11-13"}]}'
+    assert FredSource(fetch, api_key="K").release_dates(10, "2026-11-08") == ["20261113", "20261210"]
+    assert "include_release_dates_with_no_data=true" in urls[0]
+    assert "release_id=10" in urls[0] and "realtime_start=2026-11-08" in urls[0]
+
+
+def test_release_dates_without_key_returns_none():
+    calls = []
+    assert FredSource(lambda url: calls.append(url) or "{}").release_dates(10, "2026-11-08") is None
+    assert calls == []
+
+
+def test_release_dates_error_does_not_leak_key(caplog):
+    def boom(url):
+        raise RuntimeError("failed " + url)
+    with caplog.at_level(logging.WARNING):
+        assert FredSource(boom, api_key="SECRETKEY").release_dates(10, "2026-11-08") is None
+    assert caplog.records and "SECRETKEY" not in caplog.text
+
+
+def test_release_dates_empty_returns_none():
+    assert FredSource(lambda u: '{"release_dates":[]}', api_key="K").release_dates(10, "2026-11-08") is None

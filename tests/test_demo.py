@@ -224,3 +224,49 @@ def test_value_chips_methods():
     md = d.margin_detail("20260101", "20261106")
     assert list(md.columns) == ["trade_date", "rzye", "rzmre"] and len(md) == len(st)
     assert d.index_pb("000300.SH", "20261107", "20261108").empty
+
+
+def test_demo_eco_cal_has_whitelist_and_noise():
+    import econ_calendar
+    df = DemoSource().eco_cal("20261101", "20261130", "中国")
+    assert list(df.columns) == ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+    assert set(df["country"]) == {"中国"}
+    hits = [e for e in df["event"] if econ_calendar.match_item(e)]
+    assert any("CPI" in e for e in hits) and any("PPI" in e for e in hits) and any("M2" in e for e in hits)
+    assert "中国外汇储备(美元)(十月)" in set(df["event"])
+    assert "02:38" in set(df["time"])
+    assert list(df.sort_values(["date", "time"], kind="stable").index) == list(df.index)
+    cpi = df[df["event"].str.contains("CPI年率")].iloc[0]
+    assert cpi["date"] == "20261109" and pd.isna(cpi["value"])
+
+
+def test_demo_eco_cal_respects_row_limit():
+    d = DemoSource()
+    for a, b in [("20240101", "20261231"), ("20260101", "20261231")]:
+        assert len(d.eco_cal(a, b, "中国")) <= 100 and len(d.eco_cal(a, b, "美国")) <= 100
+    assert len(d.eco_cal("20261102", "20261108", "美国")) >= 1
+    assert d.eco_cal("20261101", "20261130", "日本").empty
+    assert list(d.eco_cal("20261101", "20261130", "日本").columns) == \
+        ["date", "time", "country", "event", "value", "pre_value", "fore_value"]
+    past = d.eco_cal("20261001", "20261031", "美国")
+    assert past["value"].notna().all()
+
+
+def test_demo_cn_cpi_ppi():
+    d = DemoSource()
+    assert list(d.cn_cpi("202601", "202603").columns) == ["month", "nt_yoy"] and len(d.cn_cpi("202601", "202603")) == 3
+    assert list(d.cn_ppi("202601", "202603").columns) == ["month", "ppi_yoy"]
+
+
+def test_demo_fred_macro_series_monthly():
+    for sid in config.FRED_MACRO_SERIES:
+        s = DemoFred().series(sid, "2024-01-01")
+        assert s is not None and len(s) > 12 and all(d.day == 1 for d in s.index)
+
+
+def test_demo_release_dates():
+    d = DemoFred()
+    for rid in config.FRED_RELEASES.values():
+        r = d.release_dates(rid, "2026-11-08")
+        assert r and r == sorted(r) and all(x >= "20261108" and len(x) == 8 for x in r)
+    assert d.release_dates(999, "2026-11-08") is None
