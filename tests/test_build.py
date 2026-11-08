@@ -1024,3 +1024,24 @@ def test_fred_fallback_release_day_morning():
     # 卡片无数据 → 只要求不早于今天
     c = _note_ctx(now, _CPI_DAY)
     assert build._next_note(c, "us_cpi_yoy", "us_cpi", pd.Series(dtype=float)) == "下次公布：12/10 周四（时间待定）"
+
+
+# ---------------------------------------------------------------- M1：非农差分按连续月份
+
+class _GapFred:
+    """PAYEMS 缺 2025-10（如政府停摆），其余每月 +100 千人。"""
+    def series(self, sid, start):
+        idx = pd.date_range("2024-01-01", "2026-09-01", freq="MS")
+        s = pd.Series(range(len(idx)), index=idx, dtype=float) * 100 + 150000
+        return s.drop(pd.Timestamp("2025-10-01")) if sid == "PAYEMS" else s
+
+    def release_dates(self, rid, start):
+        return None
+
+
+def test_nfp_diff_skips_missing_month():
+    from types import SimpleNamespace
+    c = SimpleNamespace(D=DATE, fred=_GapFred(), shared={}, now=NOW)
+    nfp = next(x for x in build._us_macro_cards(c) if x["key"] == "us_nfp")
+    assert nfp["value"] == 100.0
+    assert nfp["spark"] and set(nfp["spark"]) == {100.0}   # 缺月不产生 200 的两月差

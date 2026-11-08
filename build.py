@@ -359,6 +359,15 @@ def _next_note(c: Ctx, item: str, fred_key: str | None, series=None) -> str:
     return ""
 
 
+def _monthly_diff(s: pd.Series) -> pd.Series:
+    """YYYYMM 索引的月度序列 → 环比差；先补齐连续月份，缺月处为空，不算成两个月的差。"""
+    if s.empty:
+        return s
+    t = pd.Series(s.to_numpy(dtype=float), index=pd.to_datetime(s.index, format="%Y%m")).asfreq("MS")
+    d = t.diff().dropna()
+    return pd.Series(d.to_numpy(), index=[x.strftime("%Y%m") for x in d.index])
+
+
 def _us_macro_cards(c: Ctx) -> list:
     """美国 CPI / PPI 同比、非农新增、失业率（FRED 月度序列，独立取数窗口）。"""
     start = _month_start(c.D, 37)
@@ -381,7 +390,7 @@ def _us_macro_cards(c: Ctx) -> list:
         log.warning("FRED %s 无数据，相关宏观卡片留空", "、".join(missing))
     sm = config.MACRO_SPARK_MONTHS
     cpi, ppi = ml.yoy_pct(raw["CPIAUCSL"]), ml.yoy_pct(raw["PPIFIS"])
-    nfp, un = raw["PAYEMS"].diff().dropna(), raw["UNRATE"]
+    nfp, un = _monthly_diff(raw["PAYEMS"]), raw["UNRATE"]
     return [
         _mk_card("us_cpi", "美国CPI同比", cpi, "%", spark_n=sm, note=_next_note(c, "us_cpi_yoy", "us_cpi", cpi)),
         _mk_card("us_ppi", "美国PPI同比", ppi, "%", spark_n=sm, note=_next_note(c, "us_ppi_yoy", "us_ppi", ppi)),
