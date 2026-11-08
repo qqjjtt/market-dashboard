@@ -221,6 +221,7 @@ ECO_CAL_ITEMS = [
     _eco("us_fomc_stmt", "us", "FOMC 货币政策声明", r"^美联储FOMC货币政策声明", False, "event"),
     _eco("us_fomc_presser", "us", "FOMC 新闻发布会", r"^美国联邦公开市场委员会新闻发布会", False, "event"),
     _eco("us_fomc_minutes", "us", "FOMC 会议纪要", r"(FOMC|联邦公开市场委员会).*会议纪要", True, "event"),
+    _eco("us_fed_chair", "us", "美联储主席讲话", r"^美联储主席", False, "event"),   # 现任主席，不写人名
     _eco("us_powell", "us", "鲍威尔讲话", r"鲍威尔", False, "event"),
 ]
 del _eco
@@ -229,5 +230,5 @@ ECO_CAL_PAST_DAYS = 14        # 每次构建刷新：今天往前
 ECO_CAL_FUTURE_DAYS = 60      # 每次构建刷新：今天往后
 ECO_CAL_KEEP_DAYS = 182       # 回填目标 + payload 保留：今天往前约 6 个月
 ECO_CAL_MAX_CALLS = 30        # 单次构建 eco_cal 调用上限
-ECO_CAL_CHUNK_DAYS = {"中国": 31, "美国": 7}   # 按 eco_cal 的 country 参数分段取数
+ECO_CAL_CHUNK_DAYS = {"中国": 31, "美国": 5}   # 按 eco_cal 的 country 参数分段取数（美国 7 天一段实测会碰 100 行上限）
 ECO_CAL_ROW_LIMIT = 100       # 接口单次上限；返回正好 100 条视为可能被截断

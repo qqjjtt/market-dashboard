@@ -205,7 +205,7 @@ def test_fetch_respects_max_calls_backfill_resumes():
     store, n = ec.fetch_events(src, TODAY, {"covered_from": None, "events": []}, 20)
     assert n == 20 and len(src.calls) == 20
     refresh_calls = [c for c in src.calls if c[0] >= sh(TODAY, -14)]
-    assert len(refresh_calls) == 14            # 刷新窗口优先取完
+    assert len(refresh_calls) == 18            # 刷新窗口优先取完（中国 3 + 美国 15）
     cf1 = store["covered_from"]
     assert cf1 is not None and sh(TODAY, -182) < cf1 <= sh(TODAY, -14)
     src2 = FakeSrc()
@@ -351,3 +351,21 @@ def test_load_store_refreshes_from_whitelist(tmp_path):
     e = got[0]
     assert (e["item"], e["label"], e["major"], e["region"], e["period"], e["value"]) == (
         "cn_m2", "M2 年率 · 九月", True, "cn", "九月", "7.2%")
+
+
+@pytest.mark.parametrize("name, key", [
+    ("美联储主席沃什讲话", "us_fed_chair"),
+    ("美联储理事鲍威尔讲话", "us_powell"),
+    ("明尼阿波利斯联储主席卡什卡利讲话", None),
+    ("美联储金融监管副主席鲍曼讲话", None),
+    ("美联储副主席杰斐逊讲话", None),
+    ("美国联邦公开市场委员会新闻发布会", "us_fomc_presser"),
+])
+def test_fed_speakers(name, key):
+    it = match_item(name)
+    assert (it["key"] if it else None) == key
+
+
+def test_us_chunk_days():
+    assert config.ECO_CAL_CHUNK_DAYS == {"中国": 31, "美国": 5}
+    assert sum(len(range(0, 75, n)) for n in config.ECO_CAL_CHUNK_DAYS.values()) == 18
