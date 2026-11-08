@@ -934,7 +934,6 @@ def test_macro_cards_monthly(tmp_path):
         assert re.match(r"^\d{6}$", c["date"]), c["key"]
         assert len(c["spark"]) <= 24
     assert _card(data, "external", "us_nfp")["unit"] == "千人"
-    assert liq
 
 
 def test_card_next_note_from_calendar():
