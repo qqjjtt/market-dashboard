@@ -838,11 +838,11 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     if not all_days:
         all_days = list(c.days)
 
-    codes = list(dict.fromkeys(config.HUIJIN6 + config.BROAD10 + config.INDUSTRY6 + config.WATCH_ETF))
+    codes = list(dict.fromkeys(config.HUIJIN_ETF + config.BROAD10 + config.INDUSTRY6 + config.WATCH_ETF))
     shares, closes = {}, {}
     hold_start = min(fetch_start, _shift(config.HUIJIN_BASE_DATE, -10))  # 汇金持仓估算需要从年末起算
     for code in codes:
-        st = hold_start if code in config.HUIJIN6 else fetch_start
+        st = hold_start if code in config.HUIJIN_ETF else fetch_start
         sh = _fetch(f"ETF {code} 份额", src.etf_share, code, st, D, note="，该只份额已跳过")
         dy = _fetch(f"ETF {code} 日线", src.etf_daily, code, st, D, note="，该只日线已跳过")
         if isinstance(sh, pd.DataFrame) and not sh.empty:
@@ -857,7 +857,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     net = me.net_flow(share_w, close_w) if len(both) else pd.DataFrame(index=all_days)
     net = net[net.index >= win_start]
 
-    team = [x for x in config.HUIJIN6 if x in net.columns]
+    team = [x for x in config.HUIJIN_ETF if x in net.columns]
     daily_sh = me.aggregate(net[team], config.DISCLOSURE_MIN) if team else pd.Series(np.nan, index=net.index)
 
     # --- 本轮
@@ -872,7 +872,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
     out["round_total"] = rnd["total"]
     out["monthly"] = me.monthly_totals(daily_sh, config.MONTHLY_MONTHS)
 
-    # --- 国家队（汇金重仓 6 只）
+    # --- 国家队（汇金重仓 7 只）
     s = daily_sh.dropna()
     out["team_last3"] = [float(v) for v in s.tail(3).tolist()][::-1]
     out["team_asof"] = str(s.index[-1]) if len(s) else None
@@ -888,7 +888,7 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
         "index_close": [_num(v) for v in idx_close],
         "per_etf": [{"code": code, "name": names.get(code, code),
                      "share": [_num(v) for v in share_w.loc[share_w.index >= flow_start, code]]}
-                    for code in config.HUIJIN6 if code in share_w.columns],
+                    for code in config.HUIJIN_ETF if code in share_w.columns],
     }
 
     # --- 观察池天量（失败只影响这一块）
@@ -916,9 +916,9 @@ def _etf(c: Ctx, round_start: str | None) -> dict:
 
 
 def _holdings(shares: dict, closes: dict, names: dict, D: str, prev_day: str | None) -> dict:
-    """汇金在 HUIJIN6 上的持仓估算（亿份 / 亿元）。某只取不到份额 → 该行为空、不计入合计。"""
+    """汇金在 HUIJIN_ETF 上的持仓估算（亿份 / 亿元）。某只取不到份额 → 该行为空、不计入合计。"""
     rows, latest, prev_vals = [], [], []
-    for code in config.HUIJIN6:
+    for code in config.HUIJIN_ETF:
         row = {"code": code, "name": names.get(code, code), "base": config.HUIJIN_HOLDINGS.get(code),
                "est": None, "total_shares": None, "close": None, "value": None, "date": None}
         rows.append(row)

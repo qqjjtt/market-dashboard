@@ -67,11 +67,11 @@ def test_build_demo_end_to_end(tmp_path):
     assert liq["vote"]["label"] in ("偏松", "中性", "偏紧") and len(liq["vote"]["signals"]) == 4
     assert liq["rate_expect"]["label"] != "无数据"
     assert all(c["value"] is not None for k in ("domestic", "macro", "external") for c in liq[k])
-    assert data["round"]["count"] == 6 and data["round"]["start"] <= DATE
+    assert data["round"]["count"] == 7 and data["round"]["start"] <= DATE
     assert len(data["monthly"]) == 6
     assert data["sector_flow"]["date"] == DATE and data["sector_flow"]["day"]["inflow"]
     assert len(data["etf_flow"]["dates"]) == len(data["etf_flow"]["daily"]) == len(data["etf_flow"]["cum"])
-    assert len(data["etf_flow"]["per_etf"]) == 6 and data["meta"]["team_pool"] == "汇金重仓 6 只"
+    assert len(data["etf_flow"]["per_etf"]) == 7 and data["meta"]["team_pool"] == "汇金重仓 7 只"
     usd = next(c for c in liq["external"] if c["key"] == "usd")
     assert "FXCM" in usd["note"] and "DXY" in usd["note"]  # 12759 这类点位不是 DXY，须在卡片上写明
     assert len(data["fingerprint"]["groups"]) == 4
@@ -127,14 +127,14 @@ class MissingEtfSource(DemoSource):
 
 def test_build_skips_missing_etf(tmp_path, monkeypatch):
     _, data = run(tmp_path, MissingEtfSource(), monkeypatch=monkeypatch)
-    assert data["round"]["count"] == 5 and any("159919.SZ" in w for w in data["meta"]["warnings"])
+    assert data["round"]["count"] == 6 and any("159919.SZ" in w for w in data["meta"]["warnings"])
 
 
 def test_holdings_payload(tmp_path):
     _, data = run(tmp_path)
     h = data["holdings"]
     assert h["base_date"] == "20251231"
-    assert [r["code"] for r in h["rows"]] == config.HUIJIN6
+    assert [r["code"] for r in h["rows"]] == config.HUIJIN_ETF
     assert all(r["est"] is not None and r["value"] is not None for r in h["rows"])
     assert isinstance(h["total"], float)
     assert h["total"] == pytest.approx(sum(r["value"] for r in h["rows"]), abs=0.5)
@@ -446,7 +446,7 @@ class MalformedMinutes(DemoSource):
 
 def test_tail_failure_does_not_wipe_national_team_block(tmp_path, monkeypatch):
     _, data = run(tmp_path, MalformedMinutes(), monkeypatch=monkeypatch)
-    assert data["etf_flow"]["dates"] and data["round"]["count"] == 6 and len(data["monthly"]) == 6
+    assert data["etf_flow"]["dates"] and data["round"]["count"] == 7 and len(data["monthly"]) == 6
     fp = data["fingerprint"]
     assert fp["tail"] == {"today": None, "yday": None, "source": "无分钟数据"}
     assert fp["groups"] and data["meta"]["tail_source"] == "无分钟数据"
@@ -458,7 +458,7 @@ def test_fingerprint_failure_keeps_flow_block(tmp_path, monkeypatch):
         raise ValueError("bad groups")
     monkeypatch.setattr(build.me, "amount_groups", boom)
     _, data = run(tmp_path, monkeypatch=monkeypatch)
-    assert data["etf_flow"]["dates"] and data["round"]["count"] == 6 and len(data["monthly"]) == 6
+    assert data["etf_flow"]["dates"] and data["round"]["count"] == 7 and len(data["monthly"]) == 6
     assert data["fingerprint"]["groups"] == [] and data["fingerprint"]["tail"]["source"] == "无分钟数据"
     assert any("成交指纹" in w for w in data["meta"]["warnings"])
 
@@ -606,8 +606,8 @@ def test_repo_missing_degrades(tmp_path, monkeypatch):
 def test_watch_pool_in_payload(tmp_path):
     _, data = run(tmp_path)
     w = data["watch"]
-    assert w["count"] == 25 and w["date"] == DATE and isinstance(w["spikes"], list)
-    assert "511380.SH" in config.WATCH_ETF and not set(config.WATCH_ETF) & set(config.HUIJIN6)
+    assert w["count"] == 24 and w["date"] == DATE and isinstance(w["spikes"], list)
+    assert "511380.SH" in config.WATCH_ETF and not set(config.WATCH_ETF) & set(config.HUIJIN_ETF)
 
 
 class SpikeSource(DemoSource):

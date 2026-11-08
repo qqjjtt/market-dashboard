@@ -1,6 +1,6 @@
 # 汇金持仓校准：定期报告披露后的更新步骤
 
-对象：`config.HUIJIN6` 的 6 只 ETF（510300、510310、510330、510050、510500 在上交所；159919 在深交所）。
+对象：`config.HUIJIN_ETF` 的 7 只 ETF（510300、510310、510330、510050、510500、512100 在上交所；159919 在深交所）。
 改的地方只有 `config.py` 里的 `HUIJIN_HOLDINGS`、`HUIJIN_BASE_DATE`、`HUIJIN_CAPS`。估算逻辑见 README「汇金持仓（估算）」。
 
 ## 什么时候有新报告
@@ -17,6 +17,7 @@
 ## 去哪里找
 
 - 上交所：`https://www.sse.com.cn/disclosure/fund/announcement/c/new/<发布日>/<代码>_<发布日>_<4位随机>.pdf`。后缀无法猜，用搜索（如 `sse.com.cn 510300 2027 年第1 季度报告`，限定 `sse.com.cn`）找到链接。下载要带 `-A "Mozilla/5.0" -e https://www.sse.com.cn/`。
+- 任何一只（最省事）：东方财富的定期报告列表 `https://api.fund.eastmoney.com/f10/JJGG?fundcode=<6位代码>&pageIndex=1&pageSize=20&type=3`（带 `-A "Mozilla/5.0" -e https://fundf10.eastmoney.com/`），返回每份报告的 `ID` 和标题；PDF 在 `https://pdf.dfcfw.com/pdf/H2_<ID>_1.pdf`。
 - 159919（深交所）：在 cninfo（巨潮资讯）或 `pdf.dfcfw.com` 搜「嘉实沪深300交易型开放式指数证券投资基金 <报告名>」。找不到就跳过这一只，在提交说明里写明。
 - PDF 放进一个新建的空目录；用 `uv run -q --with pypdf python -I <脚本>` 提取文本（脚本放在别的目录）。
 
@@ -26,7 +27,7 @@
 1. 在「期末上市基金前十名持有人」里找「中央汇金投资有限责任公司」和「中央汇金资产管理有限责任公司」，两行份额相加（份 → 亿份，保留 2 位小数）。不在前十名 → 记 0。
 2. 更新 `HUIJIN_HOLDINGS[代码]`，`HUIJIN_BASE_DATE` 改为该年 12 月 31 日。
 3. 删掉 `HUIJIN_CAPS` 里日期早于新 `HUIJIN_BASE_DATE` 的条目（已无用）。
-4. 只拿到部分 ETF 的年报时，**先不要改 `HUIJIN_BASE_DATE`**（它是 6 只共用的），只在 `HUIJIN_CAPS` 里给拿到的那几只加一条「年末日期: 汇金合计份额」，等 6 只齐了再一起改起点。
+4. 只拿到部分 ETF 的年报时，**先不要改 `HUIJIN_BASE_DATE`**（它是 7 只共用的），只在 `HUIJIN_CAPS` 里给拿到的那几只加一条「年末日期: 汇金合计份额」，等 7 只齐了再一起改起点。
 
 **中期报告**
 - 读「机构投资者 持有份额」（联接基金是单独一列，不要加进去），换成亿份，作为 `HUIJIN_CAPS[代码]["YYYY0630"]`。
