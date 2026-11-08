@@ -16,4 +16,4 @@ def test_workflow_schedule():
     assert 'cron: "30 13 * * 1-5"' in text
     assert 'cron: "0 1 * * 1-5"' in text
     add_lines = [l for l in text.splitlines() if "git add" in l]
-    assert any("history" in l and "data/eco_cal.json" in l for l in add_lines)
+    assert any(l.strip().startswith("git add history data/eco_cal.json") for l in add_lines)   # 第一分支：日历存档一起提交
