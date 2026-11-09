@@ -2,8 +2,19 @@ name: build
 
 on:
   schedule:
-    - cron: "30 13 * * 1-5"  # 每个工作日 21:30 北京时间跑一次（筹码数据 20–21 点才更新；此时资金流、板块、浓度、龙虎榜、尾盘基本已出）
-    - cron: "0 1 * * 1-5"  # 每个工作日 09:00 北京时间：补上前一晚美国数据（财经日历、美国 CPI/非农等卡片）
+    # GitHub 繁忙时会跳过或延迟定时任务，整点和半点最拥挤，所以都避开；每个时段再补跑一次
+    - cron: "37 13 * * 1-5"  # 工作日 21:37 北京时间（主；筹码数据 20–21 点才更新，此时基本已出）
+    - cron: "43 14 * * 1-5"  # 工作日 22:43 北京时间（补跑：主被跳过时接上；两次都跑也只会覆盖同一天数据）
+    - cron: "7 1 * * 1-5"  # 工作日 09:07 北京时间（主：补上前一晚美国数据）
+    - cron: "13 2 * * 1-5"  # 工作日 10:13 北京时间（补跑）
+  push:
+    branches: [main]
+    # 只改存档、日历存档、文档时不必重建。github-actions 用 GITHUB_TOKEN 推的存档提交按 GitHub 规则不会再触发构建，不会循环
+    paths-ignore:
+      - "history/**"
+      - "data/eco_cal.json"
+      - "docs/**"
+      - "**.md"
   workflow_dispatch:
 
 permissions:
@@ -19,6 +30,9 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write  # 把当天数据存档提交回仓库
+    outputs:
+      status: ${{ steps.health.outputs.status }}
+      generated_at: ${{ steps.health.outputs.generated_at }}
     env:
       TZ: Asia/Shanghai
     steps:
@@ -32,6 +46,9 @@ jobs:
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      - name: 体检  # 永远 exit 0，不拦发布；结论写进运行页 Summary，供 verify job 使用
+        id: health
+        run: python healthcheck.py site/index.html --live-url https://qqjjtt.github.io/market-dashboard/
       - name: 存档当天数据与财经日历
         continue-on-error: true  # 存档失败不影响页面发布，运行页会出现黄色提示
         run: |
@@ -59,3 +76,22 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+
+  verify:
+    needs: [build, deploy]
+    if: always() && needs.build.result == 'success'  # deploy 失败时也要跑：线上不会更新，核对失败让运行标红
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: 上线核对  # healthcheck.py 只用标准库，不装依赖
+        run: >-
+          python healthcheck.py
+          --verify-live https://qqjjtt.github.io/market-dashboard/
+          --expect-generated "${{ needs.build.outputs.generated_at }}"
+          --status "${{ needs.build.outputs.status }}"
