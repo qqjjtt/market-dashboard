@@ -19,5 +19,7 @@ def test_workflow_schedule():
     assert '"history/**"' in text and '"data/eco_cal.json"' in text
     assert "healthcheck.py site/index.html" in text and "--verify-live" in text
     assert "\n  verify:" in text
+    assert "!cancelled() && needs.build.result == 'success'" in text
+    assert "continue-on-error: true  # 体检" in text
     add_lines = [l for l in text.splitlines() if "git add" in l]
     assert any(l.strip().startswith("git add history data/eco_cal.json") for l in add_lines)   # 第一分支：日历存档一起提交

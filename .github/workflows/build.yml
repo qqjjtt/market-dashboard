@@ -20,6 +20,7 @@ on:
 permissions:
   contents: read
 
+# pages 组一次只跑一个，等待中的只保留最新一个（旧的等待项会被新的取消）；每次构建都整页重建，所以无妨
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -48,6 +49,7 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       - name: 体检  # 永远 exit 0，不拦发布；结论写进运行页 Summary，供 verify job 使用
         id: health
+        continue-on-error: true  # 体检：脚本自己不会失败，这里是保险，绝不因体检拦住存档和发布
         run: python healthcheck.py site/index.html --live-url https://qqjjtt.github.io/market-dashboard/
       - name: 存档当天数据与财经日历
         continue-on-error: true  # 存档失败不影响页面发布，运行页会出现黄色提示
@@ -79,9 +81,9 @@ jobs:
 
   verify:
     needs: [build, deploy]
-    if: always() && needs.build.result == 'success'  # deploy 失败时也要跑：线上不会更新，核对失败让运行标红
+    if: ${{ !cancelled() && needs.build.result == 'success' }}  # deploy 失败时也要跑：线上不会更新，核对失败让运行标红
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     permissions:
       contents: read
     steps:

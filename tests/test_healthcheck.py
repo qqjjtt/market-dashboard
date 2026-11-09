@@ -132,7 +132,7 @@ def test_live_check_missed_and_unreadable():
     now = datetime(2026, 11, 10, 9, 8, tzinfo=SH)
     page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-09 09:10"}}) + ';\n'
     res = hc.live_check("http://x/", now=now, fetch=lambda url: page)
-    assert res[0]["level"] == "fail" and "漏跑：11-09 21:37" in res[0]["detail"]
+    assert res[0]["level"] == "fail" and "漏跑或严重延迟：11-09 21:37" in res[0]["detail"]
     page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-10 01:00"}}) + ';\n'
     assert hc.live_check("http://x/", now=now, fetch=lambda url: page) == []
 
@@ -199,3 +199,64 @@ def test_fetch_url_adds_cache_buster(monkeypatch):
     monkeypatch.setattr(hc.urllib.request, "urlopen", lambda req, timeout: seen.append((req.full_url, timeout)) or R())
     assert hc._fetch_url("http://x/") == "ok"
     assert "?t=" in seen[0][0] and seen[0][1] == 20
+
+
+import pytest
+
+
+@pytest.mark.parametrize("bad", ["2026-11-10 21:40:05", "2026-11-10T21:40", 123, "x"])
+def test_live_check_bad_generated_at_warns(bad):
+    page = "const DATA = " + json.dumps({"meta": {"generated_at": bad}}) + ";\n"
+    res = hc.live_check("http://x/", now=datetime(2026, 11, 10, 9, 8, tzinfo=SH), fetch=lambda u: page)
+    assert res[0]["level"] == "warn" and "格式无法识别" in res[0]["detail"]
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d.update(liquidity=[]),
+    lambda d: d.update(meta="x"),
+    lambda d: d.update(eco_calendar={"status": "ok", "events": 5}),
+    lambda d: d.update(liquidity={"macro": "x", "external": 3}),
+    lambda d: d.update(meta={"warnings": 7}),
+    lambda d: d.update(eco_calendar="x"),
+])
+def test_check_payload_malformed_shapes_do_not_raise(mutate):
+    d = _good()
+    mutate(d)
+    assert hc.overall(hc.check_payload(d)) in ("ok", "warn", "fail")
+
+
+def test_main_never_fails_on_malformed_live(tmp_path, monkeypatch):
+    html, data = run(tmp_path, monkeypatch=monkeypatch)
+    out = tmp_path / "out.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setattr(hc, "_fetch_url", lambda u: 'const DATA = {"meta": {"generated_at": 123}};\n')
+    assert hc.run_check(str(tmp_path / "i.html"), "http://x/") == 0
+    assert "generated_at=" + data["meta"]["generated_at"] in out.read_text(encoding="utf-8")
+
+
+def test_run_check_internal_error_still_writes_outputs(tmp_path, monkeypatch):
+    html, data = run(tmp_path, monkeypatch=monkeypatch)
+    out, summ = tmp_path / "out.txt", tmp_path / "sum.md"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summ))
+
+    def boom(*a, **k):
+        raise ValueError("x")
+    monkeypatch.setattr(hc, "check_payload", boom)
+    assert hc.run_check(str(tmp_path / "i.html"), None) == 0
+    o = out.read_text(encoding="utf-8")
+    assert "status=fail" in o and "generated_at=" + data["meta"]["generated_at"] in o
+    assert "体检脚本异常：ValueError" in summ.read_text(encoding="utf-8")
+
+
+def test_run_check_missing_file_still_zero(tmp_path, monkeypatch):
+    out = tmp_path / "out.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    assert hc.run_check(str(tmp_path / "nope.html"), None) == 0
+    assert "status=fail" in out.read_text(encoding="utf-8")
+
+
+def test_verify_live_empty_expect_fails_fast():
+    sleeps = []
+    assert hc.verify_live("http://x/", "", "ok", fetch=lambda u: 1 / 0, sleep=sleeps.append) == 1
+    assert sleeps == []

@@ -42,17 +42,26 @@ def _res(level: str, item: str, detail: str) -> dict:
     return {"level": level, "item": item, "detail": detail}
 
 
+def _dict(v) -> dict:
+    return v if isinstance(v, dict) else {}
+
+
+def _list(v) -> list:
+    return v if isinstance(v, list) else []
+
+
 def _find_card(cards, key):
-    return next((c for c in (cards or []) if isinstance(c, dict) and c.get("key") == key), None)
+    return next((c for c in _list(cards) if isinstance(c, dict) and c.get("key") == key), None)
 
 
 def _calendar_result(data: dict) -> dict:
     eco = data.get("eco_calendar")
-    if not isinstance(eco, dict) or eco.get("status") == "failed" or not eco.get("events"):
+    events = _list(eco.get("events")) if isinstance(eco, dict) else []
+    if not isinstance(eco, dict) or eco.get("status") == "failed" or not events:
         return _res("fail", "财经日历", "取数失败或没有事件")
     if eco.get("status") == "stale":
         return _res("warn", "财经日历", "本次未能刷新，用的是存档")
-    return _res("ok", "财经日历", f"{len(eco['events'])} 条事件")
+    return _res("ok", "财经日历", f"{len(events)} 条事件")
 
 
 def _card_result(cards, key, miss_level: str) -> dict:
@@ -66,11 +75,11 @@ def _card_result(cards, key, miss_level: str) -> dict:
 def check_payload(data: dict | None) -> list[dict]:
     if data is None:
         return [_res("fail", "页面数据", "页面里找不到数据")]
-    liq = data.get("liquidity") or {}
+    liq = _dict(data.get("liquidity"))
     out = [_calendar_result(data)]
     out += [_card_result(liq.get("macro"), k, "fail") for k in CN_CARDS]
     out += [_card_result(liq.get("external"), k, "warn") for k in US_CARDS]
-    n = len((data.get("meta") or {}).get("warnings") or [])
+    n = len(_list(_dict(data.get("meta")).get("warnings")))
     out.append(_res("ok", "构建告警", f"{n} 条"))
     return out
 
@@ -118,30 +127,33 @@ def summary_markdown(results: list[dict], warnings: list[str], missed: list[str]
     return "\n".join(lines) + "\n"
 
 
-def _fetch_url(url: str) -> str:
+def _fetch_url(url: str, timeout: float = 20) -> str:
     sep = "&" if "?" in url else "?"
     req = urllib.request.Request(f"{url}{sep}t={int(time.time())}", headers={"Cache-Control": "no-cache"})
-    with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
         return r.read().decode("utf-8", "replace")
 
 
 def _generated_at(html: str) -> str | None:
-    payload = extract_payload(html)
-    return ((payload or {}).get("meta") or {}).get("generated_at")
+    return _dict(_dict(extract_payload(html)).get("meta")).get("generated_at")
 
 
-def live_check(url: str, now: datetime | None = None, fetch=_fetch_url) -> list[dict]:
+def live_check(url: str, now: datetime | None = None, fetch=None) -> list[dict]:
     """用线上（上一版）页面的生成时间检查有没有漏跑；返回要追加的结果项。"""
     now = now or datetime.now(SH)
+    fetch = fetch or _fetch_url
     try:
         prev = _generated_at(fetch(url))
     except Exception:  # noqa: BLE001
         prev = None
     if prev is None:
         return [_res("warn", "漏跑检查", "无法读取线上页面，未检查漏跑")]
-    missed = missed_slots(prev, now)
+    try:
+        missed = missed_slots(prev, now)
+    except Exception:  # noqa: BLE001
+        return [_res("warn", "漏跑检查", "线上页面生成时间格式无法识别，未检查漏跑")]
     if missed:
-        return [dict(_res("fail", "漏跑检查", "漏跑：" + "、".join(missed)), missed=missed)]
+        return [dict(_res("fail", "漏跑检查", "漏跑或严重延迟：" + "、".join(missed)), missed=missed)]
     return []
 
 
@@ -152,24 +164,46 @@ def _append(env_name: str, text: str) -> None:
             f.write(text)
 
 
-def run_check(html_path: str, live_url: str | None, now: datetime | None = None, fetch=_fetch_url) -> int:
-    with open(html_path, encoding="utf-8") as f:
-        payload = extract_payload(f.read())
-    results = check_payload(payload)
-    if live_url:
-        results += live_check(live_url, now, fetch)
-    meta = (payload or {}).get("meta") or {}
-    missed = [m for r in results for m in r.get("missed", [])]
-    md = summary_markdown(results, meta.get("warnings") or [], missed)
+def _emit(results: list[dict], warnings: list, missed: list, generated_at) -> None:
+    md = summary_markdown(results, warnings, missed)
     print(md)
     _append("GITHUB_STEP_SUMMARY", md)
-    _append("GITHUB_OUTPUT", f"status={overall(results)}\ngenerated_at={meta.get('generated_at') or ''}\n")
+    _append("GITHUB_OUTPUT", f"status={overall(results)}\ngenerated_at={generated_at or ''}\n")
+
+
+def run_check(html_path: str, live_url: str | None, now: datetime | None = None, fetch=None) -> int:
+    """体检；任何异常都只记一项 fail 并照常写输出，永远返回 0（不拦发布）。"""
+    fetch = fetch or _fetch_url
+    generated_at, results, warnings, missed = "", [], [], []
+    try:
+        with open(html_path, encoding="utf-8") as f:
+            payload = extract_payload(f.read())
+        meta = _dict(_dict(payload).get("meta"))
+        g = meta.get("generated_at")
+        generated_at = g if isinstance(g, str) else ""
+        warnings = [str(w) for w in _list(meta.get("warnings"))]
+        results = check_payload(payload)
+        if live_url:
+            results += live_check(live_url, now, fetch)
+        missed = [m for r in results for m in r.get("missed", [])]
+    except Exception as e:  # noqa: BLE001
+        results = results + [_res("fail", "体检脚本", f"体检脚本异常：{type(e).__name__}")]
+    try:
+        _emit(results, warnings, missed, generated_at)
+    except Exception as e:  # noqa: BLE001
+        print(f"体检结果写入失败：{type(e).__name__}")
     return 0  # 体检不拦发布
 
 
 def verify_live(url: str, expect: str, status: str | None, timeout: float = 360, interval: float = 30,
-                fetch=_fetch_url, sleep=time.sleep) -> int:
+                fetch=None, sleep=time.sleep) -> int:
     """轮询线上页面直到 generated_at 等于期望值；没更新到、或体检 fail 返回 1。"""
+    if not expect:
+        md = "## 上线核对\n\n- ❌ 构建未给出生成时间\n"
+        print(md)
+        _append("GITHUB_STEP_SUMMARY", md)
+        return 1
+    fetch = fetch or (lambda u: _fetch_url(u, timeout=10))
     waited, seen, ok = 0.0, None, False
     while True:
         try:
