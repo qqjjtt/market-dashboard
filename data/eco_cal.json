@@ -2109,7 +2109,7 @@
 "label": "核心 CPI 月率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
+"value": "0.3%",
 "pre": "0.3%",
 "fore": "0.2%"
 },
@@ -2133,7 +2133,7 @@
 "label": "CPI 月率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
+"value": "0.4%",
 "pre": "0.6%",
 "fore": "0.3%"
 },
