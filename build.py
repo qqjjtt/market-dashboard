@@ -27,6 +27,7 @@ import metrics_gauge as mg
 import metrics_liquidity as ml
 import metrics_sentiment as ms
 import metrics_value as mvl
+import store
 from render import archive_json, render
 from summary import build_conclusions, signed
 
@@ -161,6 +162,9 @@ class Ctx:
     exact_limits: dict = field(default_factory=dict)   # trade_date -> {"up","down"}（limit_list_d 精确值），每日只取一次
     shared: dict = field(default_factory=dict)  # 面板间复用已取到的数据（m1 / sf_yoy / fed / cal），避免重复调接口
     eco_path: str | None = None   # 财经日历存档路径；None 不读写文件
+    demo: bool = False            # 演示构建（板块资金流向会无库回补，但不读写仓库里的库）
+    db_dir: str | None = None     # 历史数据库目录；None = 不读写仓库里的库
+    extras: dict = field(default_factory=dict)   # 给调用方带回不进 payload 的产物（如 sector_hist 矩阵）
 
 
 # ------------------------------------------------------------------ 日期
@@ -714,20 +718,73 @@ def _empty_rank():
     return {"inflow": [], "outflow": []}
 
 
+def _sector_default() -> dict:
+    return {"date": None, "day": _empty_rank(), "d5": _empty_rank(), "hist": None}
+
+
+def _sector_chunks(days: list[str], size: int) -> list[list[str]]:
+    """把升序交易日从后往前切成每段 size 天（最早一段可能不足），返回按时间升序的段。"""
+    size = max(int(size), 1)
+    out = [days[max(i - size, 0):i] for i in range(len(days), 0, -size)]
+    return out[::-1]
+
+
 def _sector_flow(c: Ctx) -> dict:
+    cfg = config.SECTOR_DB
     D = c.D
-    start = c.days[max(0, len(c.days) - 7)]
+    cal = [d for d in _cal_days(c) if d <= D] or [d for d in c.days if d <= D]
+    want = cal[-cfg["days"]:]
+    db_file = Path(c.db_dir) / store.SECTOR_FILE if c.db_dir else None
+    old = store.load_csv(db_file, store.SECTOR_COLS)
+    gaps = []
+    if c.db_dir is not None or c.demo:
+        gaps = store.missing_days(set(old["trade_date"]), want, cfg["recheck"])
+
+    start7 = c.days[max(0, len(c.days) - 7)]
     ends = [D] + c.days[-3:-1][::-1]
-    df = _range_latest("板块资金流向", c.src.sector_flow, start, ends)
-    if df is None:
-        return {"date": None, "day": _empty_rank(), "d5": _empty_rank()}
-    df = df[df["trade_date"].astype(str) <= D]
+    last_start = start7
+    earlier: list[list[str]] = []
+    if gaps:
+        first = min(start7, gaps[0])
+        span = [d for d in want if d >= first]
+        tail = span[-cfg["chunk"]:]
+        if tail:
+            last_start = min(start7, tail[0])
+        earlier = _sector_chunks([d for d in span if d < last_start], cfg["chunk"])
+
+    parts = []
+    for seg in earlier:
+        part = _fetch(f"板块资金流向 回补 {_md(seg[0])}–{_md(seg[-1])}", c.src.sector_flow, seg[0], seg[-1])
+        if isinstance(part, pd.DataFrame) and not part.empty:
+            parts.append(part)
+    latest = _range_latest("板块资金流向", c.src.sector_flow, last_start, ends)
+    if latest is not None:
+        parts.append(latest)
+
+    new = pd.concat(parts, ignore_index=True) if parts else None
+    if new is not None:
+        new = new[new["trade_date"].astype(str) <= D]
+    merged = store.merge_sector(old, new)
+    if db_file is not None and new is not None and not new.empty:
+        try:
+            store.save_csv(merged, db_file, ["trade_date", "industry"])
+        except Exception as e:  # noqa: BLE001
+            log.warning("历史库 sector_flow.csv 写入失败（%s: %s）", type(e).__name__, _short(e))
+
+    matrix = store.sector_matrix(merged, cfg["days"])
+    c.extras["sector_hist"] = matrix
+    hist = None
+    if len(matrix["dates"]) >= 2:
+        hist = {"file": f"db/{store.MATRIX_FILE}", "days": len(matrix["dates"]),
+                "start": matrix["dates"][0], "end": matrix["dates"][-1]}
+
+    df = merged[merged["trade_date"].astype(str) <= D] if len(merged) else merged
     if df.empty:
-        return {"date": None, "day": _empty_rank(), "d5": _empty_rank()}
+        return dict(_sector_default(), hist=hist)
     d = str(df["trade_date"].astype(str).max())
     if d != D:
         log.warning("板块资金流向 数据截至 %s", _md(d))
-    return {"date": d, "day": ml.sector_flow_rank(df, d, 1), "d5": ml.sector_flow_rank(df, d, 5)}
+    return {"date": d, "day": ml.sector_flow_rank(df, d, 1), "d5": ml.sector_flow_rank(df, d, 5), "hist": hist}
 
 
 def _recent_limit_codes(flags: dict, day: str) -> set:
@@ -1200,21 +1257,21 @@ def _news(c: Ctx, date: str) -> dict:
 # ------------------------------------------------------------------ 组装
 
 def collect(src, fred, date: str, round_start: str | None, demo: bool, now: datetime | None = None,
-            eco_path: str | None = None) -> dict:
+            eco_path: str | None = None, db_dir: str | None = None, extras: dict | None = None) -> dict:
     """取数并组装 payload（契约见计划「payload 契约」）。任何局部失败只降级，不抛异常。"""
     now = (now or datetime.now(SH)).astimezone(SH)
     handler = _WarnCollector()
     root = logging.getLogger()
     root.addHandler(handler)
     try:
-        payload = _collect(src, fred, date, round_start, demo, now, eco_path)
+        payload = _collect(src, fred, date, round_start, demo, now, eco_path, db_dir, extras)
     finally:
         root.removeHandler(handler)
     payload["meta"]["warnings"] = list(handler.messages)
     return payload
 
 
-def _collect(src, fred, date, round_start, demo, now, eco_path=None) -> dict:
+def _collect(src, fred, date, round_start, demo, now, eco_path=None, db_dir=None, extras=None) -> dict:
     daily: dict = {}
     D = _resolve_trade_day(src, date, daily, now)
     n_days = config.TEMP_WINDOW + config.AMOUNT_MA + 2
@@ -1235,7 +1292,8 @@ def _collect(src, fred, date, round_start, demo, now, eco_path=None) -> dict:
     basic = _fetch("股票列表", src.stock_basic)
     names = dict(zip(basic["ts_code"], basic["name"])) if isinstance(basic, pd.DataFrame) and not basic.empty else {}
     flags = _safe("涨跌停判定", lambda: {d: ms.limit_flags(df, names) for d, df in daily.items()}, dict)
-    c = Ctx(src=src, fred=fred, D=D, days=days, daily=daily, names=names, flags=flags, now=now, eco_path=eco_path)
+    c = Ctx(src=src, fred=fred, D=D, days=days, daily=daily, names=names, flags=flags, now=now, eco_path=eco_path,
+            demo=bool(demo), db_dir=db_dir, extras=extras if extras is not None else {})
 
     _today = now.strftime("%Y%m%d")
     eco = _safe("财经日历", lambda: _eco_calendar(c), lambda: {
@@ -1245,8 +1303,7 @@ def _collect(src, fred, date, round_start, demo, now, eco_path=None) -> dict:
         "vote": ml.liquidity_vote(None, None, None, None), "rate_expect": ml.rate_expectation(None, None)})
     li = _safe("流动性指数", lambda: _liquidity_index(c), lambda: _empty_gauge(D))
     calendar = _safe("到期日提醒", lambda: _calendar(c), lambda: {"today": [], "upcoming": []})
-    sector = _safe("板块资金流向", lambda: _sector_flow(c),
-                   lambda: {"date": None, "day": _empty_rank(), "d5": _empty_rank()})
+    sector = _safe("板块资金流向", lambda: _sector_flow(c), _sector_default)
     sent = _safe("散户情绪", lambda: _sentiment(c), _default_sentiment)
     valuation = _safe("估值·筹码", lambda: _valuation(c), _default_valuation)
     etf = _safe("ETF", lambda: _etf(c, round_start), _default_etf)
@@ -1315,6 +1372,27 @@ def archive(payload: dict, directory: str) -> Path:
     return path
 
 
+def _write_db(args, payload: dict, extras: dict) -> None:
+    """历史数据库的收尾：板块矩阵（演示也写）、每日指标长表与 CSV 副本（仅真实数据）。三步各自兜底，只记 WARNING。"""
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    empty = {"dates": [], "names": [], "net": [], "pct": []}
+    try:
+        store.write_matrix(extras.get("sector_hist") or empty, out_dir)
+    except Exception as e:  # noqa: BLE001
+        log.warning("板块历史矩阵写入失败（%s: %s）", type(e).__name__, _short(e))
+    if args.demo:
+        return
+    try:
+        n = store.update_daily(args.db, payload, history_dir=args.archive)
+        log.info("历史库 daily.csv 已写入 %d 项指标", n)
+    except Exception as e:  # noqa: BLE001
+        log.warning("历史库 daily.csv 更新失败（%s: %s）", type(e).__name__, _short(e))
+    try:
+        store.publish_csv(args.db, out_dir)
+    except Exception as e:  # noqa: BLE001
+        log.warning("历史库 CSV 发布失败（%s: %s）", type(e).__name__, _short(e))
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成 A 股盘后看板单文件 HTML")
     ap.add_argument("--date", help="目标日期 YYYYMMDD，默认北京时间当日")
@@ -1325,6 +1403,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="另存当天数据为 DIR/<交易日 YYYY-MM-DD>.json，同一交易日覆盖（演示数据不存）")
     ap.add_argument("--eco-cal", dest="eco_cal", default="data/eco_cal.json", metavar="PATH",
                     help="财经日历存档路径，默认 data/eco_cal.json（演示数据不读写）")
+    ap.add_argument("--db", default="db", metavar="DIR",
+                    help="历史数据库目录，默认 db（演示数据不读写）；发布用的副本另写到 --out 所在目录的 db/")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -1334,9 +1414,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # noqa: BLE001
         log.error("数据源初始化失败（%s: %s）", type(e).__name__, _short(e))
         return 2
+    extras: dict = {}
     try:
         payload = collect(src, fred, date, args.round_start, args.demo,
-                          eco_path=None if args.demo else args.eco_cal)
+                          eco_path=None if args.demo else args.eco_cal,
+                          db_dir=None if args.demo else args.db, extras=extras)
     except FatalBuildError as e:
         log.error("整体取数失败，不生成页面（保留上一份）：%s", _scrub(str(e)))
         return 3
@@ -1345,6 +1427,7 @@ def main(argv: list[str] | None = None) -> int:
     render(str(TEMPLATE), payload, args.out)
     if args.archive and not args.demo:
         log.info("已存档 %s", archive(payload, args.archive))
+    _write_db(args, payload, extras)
     ws = payload["meta"]["warnings"]
     log.info("已生成 %s（交易日 %s，demo=%s，%d 条警告）", args.out, payload["meta"]["trade_date"], args.demo, len(ws))
     for w in ws:

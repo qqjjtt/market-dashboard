@@ -232,3 +232,7 @@ ECO_CAL_KEEP_DAYS = 182       # 回填目标 + payload 保留：今天往前约 
 ECO_CAL_MAX_CALLS = 30        # 单次构建 eco_cal 调用上限
 ECO_CAL_CHUNK_DAYS = {"中国": 31, "美国": 5}   # 按 eco_cal 的 country 参数分段取数（美国 7 天一段实测会碰 100 行上限）
 ECO_CAL_ROW_LIMIT = 100       # 接口单次上限；返回正好 100 条视为可能被截断
+
+# 历史数据库（db/sector_flow.csv）：days = 库里保留并发布的交易日数；chunk = 回补时每次请求的交易日数；
+# recheck = 只重查最近多少个交易日里的缺口（更早的缺口视为永久缺失，不反复重取）
+SECTOR_DB = dict(days=250, chunk=30, recheck=20)

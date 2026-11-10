@@ -22,4 +22,10 @@ def test_workflow_schedule():
     assert "!cancelled() && needs.build.result == 'success'" in text
     assert "continue-on-error: true  # 体检" in text
     add_lines = [l for l in text.splitlines() if "git add" in l]
-    assert any(l.strip().startswith("git add history data/eco_cal.json") for l in add_lines)   # 第一分支：日历存档一起提交
+    assert any(l.strip() == "git add history" for l in add_lines)
+    assert 'for p in data/eco_cal.json db; do' in text    # 日历存档与历史库只在文件存在时才加入
+    assert '- "db/**"' in text                            # 只提交 db 的存档不重建
+
+
+def test_sector_db_config():
+    assert config.SECTOR_DB == dict(days=250, chunk=30, recheck=20)

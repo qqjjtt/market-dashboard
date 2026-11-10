@@ -7,7 +7,7 @@
 3. **国家队还在不在**：宽基 ETF 的净申赎、成交指纹，加上政策工具表佐证
 4. **散户情绪**：韭菜浓度、市场体温
 
-页面是一个带标签页的看板，打开直接看当天数据，不是宣传页：顶部固定栏有标题、交易日、更新时间和七个标签（总览 · 流动性 · 板块流向 · 国家队 · 散户情绪 · 估值·筹码 · 日历，标签旁的小圆点是该问题的结论色）。「总览」= 大盘指数条 + 四张卡片（每个问题一张：规则生成的结论、三个关键数、一条走势或流入流出前三，点「查看详情」进入对应标签）；每个标签页是该问题的完整明细。标签用 `#home` `#liquidity` `#sector` `#team` `#retail` `#value` `#calendar` 切换，图表在标签首次打开时才绘制；数据告警、板块口径、尾盘来源等放在页脚。数据源是 tushare + FRED，没有数据库、没有后台服务。
+页面是一个带标签页的看板，打开直接看当天数据，不是宣传页：顶部固定栏有标题、交易日、更新时间和七个标签（总览 · 流动性 · 板块流向 · 国家队 · 散户情绪 · 估值·筹码 · 日历，标签旁的小圆点是该问题的结论色）。「总览」= 大盘指数条 + 四张卡片（每个问题一张：规则生成的结论、三个关键数、一条走势或流入流出前三，点「查看详情」进入对应标签）；每个标签页是该问题的完整明细。标签用 `#home` `#liquidity` `#sector` `#team` `#retail` `#value` `#calendar` 切换，图表在标签首次打开时才绘制；数据告警、板块口径、尾盘来源等放在页脚。数据源是 tushare + FRED，没有后台服务；页面本身不依赖数据库，但每次构建会把行业资金流和每日指标累积进仓库里的两张 CSV 表（见「历史数据库（db/）」）。
 设计依据见 `docs/superpowers/specs/2026-11-06-market-dashboard-design.md`（与 `docs/reference/PROMPT.md` 冲突时以前者为准）。
 
 ## 运行
@@ -20,7 +20,7 @@ export FRED_API_KEY=你的key             # 可选；没有则退回 FRED 公开
 ```
 
 ```
-python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMDD] [--eco-cal data/eco_cal.json] [--demo]
+python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMDD] [--eco-cal data/eco_cal.json] [--db db] [--demo]
 ```
 
 | 参数 | 说明 |
@@ -29,6 +29,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 | `--out` | 输出路径 |
 | `--round-start` | 国家队「本轮」起点，缺省为交易日往前 38 个自然日 |
 | `--eco-cal` | 财经日历存档路径，缺省 `data/eco_cal.json`；`--demo` 时不使用 |
+| `--db` | 历史数据库目录，缺省 `db`；`--demo` 时不读写（见「历史数据库（db/）」） |
 | `--demo` | 随机模拟数据，页面顶部有红色横幅「当前为随机模拟数据」；不访问任何网络 |
 
 - 日志用 `logging`：INFO 打印结果，WARNING 记录缺失数据与降级；所有 WARNING 会汇总进页面数据 `meta.warnings`。
@@ -57,7 +58,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 
 **每个工作日定时运行（主 + 补跑）**：北京时间 **21:37**（cron `37 13 * * 1-5`，UTC）和 **09:07**（cron `7 1 * * 1-5`，补上前一晚美国数据，见「财经日历」）是主时段，各自再补跑一次：**22:43**（`43 14 * * 1-5`）和 **10:13**（`13 2 * * 1-5`）。这样安排是因为 GitHub 繁忙时会直接跳过定时任务（本仓库实测漏过多次），整点和半点最拥挤，所以都避开；补跑在主时段被跳过时接上，两次都跑也只是覆盖同一天的数据。21:37 晚于原来的 20:30，是因为筹码数据（`cyq_perf`）每天 20–21 点才更新。此时日线、资金流、板块流向、韭菜浓度、龙虎榜、尾盘分钟线基本都已发布。仍会晚一天的是数据源本身的节奏：两融（交易所次日才发齐）、外盘日线（布伦特、美元指数、联邦基金期货）、深交所 ETF 份额；它们显示最近可用日期，并在页脚「数据告警」里说明。想提前看可以随时在 Actions 页手动 Run workflow。
 
-**推送代码自动构建**：推送到 `main` 也会触发一次构建（只改 `history/`、`data/eco_cal.json`、`docs/` 或 `*.md` 的推送不触发）。构建机器人用 `GITHUB_TOKEN` 推的存档提交按 GitHub 规则不会再触发工作流，不会循环。
+**推送代码自动构建**：推送到 `main` 也会触发一次构建（只改 `history/`、`data/eco_cal.json`、`db/`、`docs/` 或 `*.md` 的推送不触发）。构建机器人用 `GITHUB_TOKEN` 推的存档提交按 GitHub 规则不会再触发工作流，不会循环。
 
 **构建体检**（`healthcheck.py`，只用标准库）：build job 在构建后自动体检并写进该次运行页的 Summary，体检本身不拦发布。检查内容：财经日历是否取到（失败或没有事件算异常，用存档只算提醒）、中国 CPI / PPI 卡是否有数据、美国 CPI / PPI / 非农 / 失业率卡是否有数据（缺了只提醒，FRED 偶尔慢）、构建告警条数（原文折叠列出，常态告警不算异常）、对比线上上一版的生成时间看有没有漏跑定时点（周一至周五的 09:07、21:37，超过 3 小时仍没跑算漏；不看 A 股节假日）。部署后 `verify` job 会轮询线上页面最多约 6 分钟，确认已更新到本次版本。**运行会标红**的情况：日历取数失败或无事件、中国 CPI / PPI 卡无数据、漏跑或严重延迟、线上没更新到本次版本。标红时 GitHub 会发邮件：定时运行通知最后修改定时设置的人（仓库主人），推送或手动触发的运行通知触发者。体检脚本自己出错也不会拦发布，只会记一项异常。
 
@@ -172,6 +173,38 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 - **注意**：实测美国 CPI、非农等都在 `eco_cal` 里（如 10 月 CPI 在 11/10 21:30，非农每月一次）；万一缺了，美国卡片的「下次公布」退回 FRED 公布日程，只有日期（见「流动性」里的宏观卡片说明）。
 - **本地运行会改动仓库文件**：不带 `--demo` 的 `python build.py` 会读写 `data/eco_cal.json`（已纳入 Git），本地跑完 `git status` 会看到它被改动；不想提交就 `git checkout data/eco_cal.json`，或用 `--eco-cal` 指到别处。
 
+## 历史数据库（db/）
+
+仓库根目录的 `db/` 是独立于看板页面的「第二数据库」：每次构建（非演示数据）自动追加，随 `history/` 一起由构建机器人提交回 `main`，旧数据永不删除。页面本身不嵌这些数据。
+
+| 文件 | 列 | 含义 |
+|---|---|---|
+| `db/sector_flow.csv` | `trade_date, industry, net_amount, pct_change` | 同花顺 90 个行业每个交易日的资金净额（亿元，主动买入 − 主动卖出）与涨跌幅（%）；按 (日期, 行业) 升序。首次构建回补约 250 个交易日（每次请求 30 个交易日），之后每天追加；只重查最近 20 个交易日里的缺口，更早的缺口视为永久缺失 |
+| `db/daily.csv` | `trade_date, key, value` | 长表，每个交易日一组行，记录当天页面数据里所有数值型指标；按 (日期, key) 升序 |
+
+**`daily.csv` 的 key 命名**：沿用页面数据的层级，用 `.` 连接；列表里的元素用它自己的 `key` / `code` / `name` / `label`（取第一个有的）当路径段，没有这些标识的元素（如走势序列）不记录；结论、新闻、日历、政策工具表、板块流向榜单不记录（板块流向另有专表）。例如：
+
+- `liquidity.vote.score`：流动性投票得分
+- `indices.000001.SH.close`：上证指数收盘（`indices` 列表里 code 为 000001.SH 的元素）
+- `liquidity.domestic.inst.value`：国内流动性卡片「inst」的最新值（卡片按其 `key` 命名）
+- `temperature.dims.limit`：市场体温的涨跌停维度
+- 具体有哪些 key 以实际数据为准，可先 `df.key.unique()` 查看
+
+**更新方式**：每次构建结束后 `store.update_daily` 把当天数据写进 `daily.csv`（同一交易日重跑会整体替换），并把 `history/` 里库中还没有的日期的存档补进来；`sector_flow.csv` 在取板块资金流向时合并写入（空数据源不会覆盖旧数据）。CI 的「存档」步骤把 `db/` 一并提交；只改 `db/` 的推送不触发重建。`--demo` 不读写仓库的 `db/`。
+
+构建还会把 `db/*.csv` 复制到发布目录（`site/db/`），并生成 `site/db/sector_flow.json`（最近 250 个交易日的行业 × 日期紧凑矩阵，演示构建也会生成），供页面按需加载。
+
+**怎么用**：
+
+```python
+import pandas as pd
+base = "https://qqjjtt.github.io/market-dashboard/db/"   # 线上；本地直接读 db/*.csv
+sf = pd.read_csv(base + "sector_flow.csv", dtype={"trade_date": str})
+net = sf.pivot(index="trade_date", columns="industry", values="net_amount")   # 日期 × 行业
+```
+
+注意：行业「净额」长期累加后绝大多数行业为负，做长周期比较请先每天减去当日全行业中位数（相对强弱）。
+
 ## 用到的 tushare 接口与权限
 
 积分要求以 tushare 官网接口文档为准，下表为大致数量级，不同账号不同；`stk_mins`、`major_news` 等另有单独权限或限频。
@@ -236,6 +269,8 @@ econ_calendar.py       # 财经日历：白名单清洗、去重、存档、下�
 data/policy_ops.csv    # 手工维护的政策工具表
 data/eco_cal.json      # 财经日历存档（构建机器人自动提交）
 history/               # 每日数据存档（构建机器人自动提交，一个交易日一个 JSON）
+db/                    # 历史数据库：sector_flow.csv、daily.csv（构建机器人自动提交）
+store.py               # 历史数据库的读写、合并、摊平
 ```
 
 ## 免责声明

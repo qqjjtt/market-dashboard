@@ -490,7 +490,8 @@ def _real_run(tmp_path, monkeypatch, *extra):
     """非 demo 模式运行（数据源换成 DemoSource，不联网），返回退出码与输出页路径。"""
     monkeypatch.setattr(build, "_make_sources", lambda demo: (DemoSource(), DemoFred()))
     out = tmp_path / "site" / "i.html"
-    return main(["--out", str(out), "--date", DATE, "--eco-cal", str(tmp_path / "eco.json"), *extra]), out
+    return main(["--out", str(out), "--date", DATE, "--eco-cal", str(tmp_path / "eco.json"),
+                 "--db", str(tmp_path / "db"), *extra]), out
 
 
 def test_archive_writes_payload_named_by_trade_date(tmp_path, monkeypatch):
@@ -1051,3 +1052,130 @@ def test_nfp_diff_skips_missing_month():
     nfp = next(x for x in build._us_macro_cards(c) if x["key"] == "us_nfp")
     assert nfp["value"] == 100.0
     assert nfp["spark"] and set(nfp["spark"]) == {100.0}   # 缺月不产生 200 的两月差
+
+
+# ---------- 历史数据库 ----------
+
+class CountingSource(DemoSource):
+    def __init__(self):
+        super().__init__()
+        self.sector_calls = []
+
+    def sector_flow(self, start, end):
+        self.sector_calls.append((start, end))
+        return super().sector_flow(start, end)
+
+
+class EmptySectorSource(DemoSource):
+    def sector_flow(self, start, end):
+        return super().sector_flow(start, end).iloc[0:0]
+
+
+def _collect_demo(src=None, db_dir=None, extras=None):
+    return build.collect(src or DemoSource(), DemoFred(), DATE, None, True, db_dir=db_dir, extras=extras)
+
+
+def test_demo_sector_hist_in_payload_and_extras():
+    extras = {}
+    data = _collect_demo(extras=extras)
+    sf = data["sector_flow"]
+    m = extras["sector_hist"]
+    assert 240 <= len(m["dates"]) <= config.SECTOR_DB["days"] and m["names"]
+    assert len(m["net"]) == len(m["names"]) and all(len(r) == len(m["dates"]) for r in m["net"])
+    assert sf["hist"] == {"file": "db/sector_flow.json", "days": len(m["dates"]),
+                          "start": m["dates"][0], "end": m["dates"][-1]}
+    assert sf["date"] == DATE and sf["day"]["inflow"] and sf["d5"]["days"] == 5
+
+
+def test_collect_without_new_args_unchanged_shape():
+    data = build.collect(DemoSource(), DemoFred(), DATE, None, True)
+    assert "hist" in data["sector_flow"]
+
+
+def test_db_dir_first_build_writes_csv_then_one_call(tmp_path):
+    src = CountingSource()
+    _collect_demo(src, db_dir=str(tmp_path))
+    assert len(src.sector_calls) > 1                      # 首次回补分段取
+    df = pd.read_csv(tmp_path / "sector_flow.csv", dtype={"trade_date": str})
+    assert list(df.columns) == ["trade_date", "industry", "net_amount", "pct_change"]
+    assert df["trade_date"].nunique() >= 240
+    assert list(zip(df.trade_date, df.industry)) == sorted(zip(df.trade_date, df.industry))
+    src2 = CountingSource()
+    data = _collect_demo(src2, db_dir=str(tmp_path))
+    assert len(src2.sector_calls) == 1                    # 没有缺口：只调一次
+    assert data["sector_flow"]["hist"]["days"] >= 240
+
+
+def test_db_gap_in_recent_days_is_refilled(tmp_path):
+    _collect_demo(CountingSource(), db_dir=str(tmp_path))
+    p = tmp_path / "sector_flow.csv"
+    df = pd.read_csv(p, dtype={"trade_date": str})
+    gone = sorted(df["trade_date"].unique())[-4]
+    df[df["trade_date"] != gone].to_csv(p, index=False)
+    src = CountingSource()
+    _collect_demo(src, db_dir=str(tmp_path))
+    assert any(s <= gone <= e for s, e in src.sector_calls)
+    assert gone in set(pd.read_csv(p, dtype={"trade_date": str})["trade_date"])
+
+
+def test_empty_source_leaves_db_untouched_and_hist_degrades(tmp_path):
+    _collect_demo(CountingSource(), db_dir=str(tmp_path))
+    p = tmp_path / "sector_flow.csv"
+    before = p.read_bytes()
+    _collect_demo(EmptySectorSource(), db_dir=str(tmp_path))
+    assert p.read_bytes() == before
+    empty_dir = tmp_path / "empty"
+    extras = {}
+    data = _collect_demo(EmptySectorSource(), db_dir=str(empty_dir), extras=extras)
+    assert data["sector_flow"]["hist"] is None and not (empty_dir / "sector_flow.csv").exists()
+    assert data["sector_flow"]["date"] is None
+    assert extras["sector_hist"]["dates"] == []
+
+
+def test_broken_source_degrade_has_hist_none(tmp_path, monkeypatch):
+    _, data = run(tmp_path, BrokenSource(), monkeypatch=monkeypatch)
+    assert data["sector_flow"]["hist"] is None
+
+
+def test_real_build_without_db_dir_does_not_backfill():
+    src = CountingSource()
+    build.collect(src, DemoFred(), DATE, None, False)
+    assert len(src.sector_calls) == 1
+
+
+def test_main_demo_writes_matrix_but_not_repo_db(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "site" / "i.html"
+    assert main(["--demo", "--out", str(out), "--date", DATE]) == 0
+    m = json.loads((tmp_path / "site" / "db" / "sector_flow.json").read_text(encoding="utf-8"))
+    assert len(m["dates"]) >= 240 and m["names"]
+    assert not (tmp_path / "db").exists()
+    assert not list((tmp_path / "site" / "db").glob("*.csv"))
+
+
+def test_main_real_run_updates_db_and_publishes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (DemoSource(), DemoFred()))
+    out = tmp_path / "site" / "i.html"
+    args = ["--out", str(out), "--date", DATE, "--db", str(tmp_path / "db"),
+            "--archive", str(tmp_path / "hist"), "--eco-cal", str(tmp_path / "eco.json")]
+    assert main(args) == 0
+    for name in ("sector_flow.csv", "daily.csv"):
+        assert (tmp_path / "db" / name).exists() and (tmp_path / "site" / "db" / name).exists()
+    assert (tmp_path / "site" / "db" / "sector_flow.json").exists()
+    daily = pd.read_csv(tmp_path / "db" / "daily.csv", dtype={"trade_date": str})
+    assert set(daily["trade_date"]) == {DATE} and len(daily) > 20
+    assert main(args) == 0                                  # 重跑同一天：整体替换，不重复
+    daily2 = pd.read_csv(tmp_path / "db" / "daily.csv", dtype={"trade_date": str})
+    assert len(daily2) == len(daily)
+
+
+def test_main_db_failures_do_not_change_exit_code(tmp_path, monkeypatch):
+    import store
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (DemoSource(), DemoFred()))
+    for fn in ("write_matrix", "update_daily", "publish_csv"):
+        monkeypatch.setattr(store, fn, lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    out = tmp_path / "site" / "i.html"
+    assert main(["--out", str(out), "--date", DATE, "--db", str(tmp_path / "db"),
+                 "--eco-cal", str(tmp_path / "eco.json")]) == 0
