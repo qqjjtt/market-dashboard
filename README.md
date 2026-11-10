@@ -188,6 +188,7 @@ python build.py [--date YYYYMMDD] [--out site/index.html] [--round-start YYYYMMD
 - `indices.000001.SH.close`：上证指数收盘（`indices` 列表里 code 为 000001.SH 的元素）
 - `liquidity.domestic.inst.value`：国内流动性卡片「inst」的最新值（卡片按其 `key` 命名）
 - `temperature.dims.limit`：市场体温的涨跌停维度
+- `etf_flow.daily.last`：时间序列的最新值——某个 dict 带有非空 `dates` 列表时，它里面与 `dates` 等长、最后一个元素是有限数值的列表各记一条 `<路径>.<字段>.last`（其余标量列表仍不逐个展开）
 - 具体有哪些 key 以实际数据为准，可先 `df.key.unique()` 查看
 
 **更新方式**：每次构建结束后 `store.update_daily` 把当天数据写进 `daily.csv`（同一交易日重跑会整体替换），并把 `history/` 里库中还没有的日期的存档补进来；`sector_flow.csv` 在取板块资金流向时合并写入（空数据源不会覆盖旧数据）。CI 的「存档」步骤把 `db/` 一并提交；只改 `db/` 的推送不触发重建。`--demo` 不读写仓库的 `db/`。

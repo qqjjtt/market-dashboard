@@ -161,6 +161,19 @@ def test_flatten_only_finite_numbers_and_strips_newlines():
     assert all(isinstance(v, (int, float)) and not math.isnan(v) for _, v in got)
 
 
+def test_flatten_records_last_of_series_aligned_with_dates():
+    payload = {"etf_flow": {"dates": ["a", "b"], "daily": [1.0, 2.5], "cum": [1.0, None],
+                            "short": [1.0], "flags": [1, True], "per_etf": [{"name": "X", "v": 1}]},
+               "plain": {"series": [1, 2, 3]},                       # 没有 dates → 不记
+               "empty": {"dates": [], "x": []},
+               "nan": {"dates": ["a"], "y": [float("nan")]}}
+    got = dict(store.flatten(payload))
+    assert got["etf_flow.daily.last"] == 2.5
+    assert not any(k.startswith(("etf_flow.cum", "etf_flow.short", "etf_flow.flags", "plain", "empty", "nan"))
+                   for k in got)
+    assert "etf_flow.dates.last" not in got and "etf_flow.per_etf.last" not in got
+
+
 # ---------- update_daily ----------
 
 def payload(td, x):

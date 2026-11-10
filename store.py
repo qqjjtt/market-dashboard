@@ -140,6 +140,14 @@ def _walk(node, path: str, out: dict) -> None:
                 out.setdefault(p, v.item() if isinstance(v, np.generic) else v)
             elif isinstance(v, (dict, list)):
                 _walk(v, p, out)
+        dates = node.get("dates")
+        if isinstance(dates, list) and dates:  # 时间序列：与 dates 等长的兄弟序列记最新值
+            for k, v in node.items():
+                if k == "dates" or not isinstance(v, list) or len(v) != len(dates) or not _is_num(v[-1]):
+                    continue
+                p = (f"{path}.{k}" if path else str(k)).replace("\n", "").replace("\r", "")
+                last = v[-1]
+                out.setdefault(f"{p}.last", last.item() if isinstance(last, np.generic) else last)
     elif isinstance(node, list):
         seen = set()
         for el in node:
