@@ -187,6 +187,9 @@ trade_date,key,value
 20261106,concentration.rows.黄金.today,61.91942513361075
 20261106,concentration.rows.黄金.trapped,59.2
 20261106,concentration.rows.黄金.yday,58.573399560441906
+20261106,etf_flow.cum.last,2717.1149329999994
+20261106,etf_flow.daily.last,26.506008999999853
+20261106,etf_flow.index_close.last,4054.2769
 20261106,fingerprint.conclusion.big,-26.0
 20261106,fingerprint.groups.全部十六只.chg_pct,-27.0
 20261106,fingerprint.groups.全部十六只.n,16.0
@@ -429,11 +432,13 @@ trade_date,key,value
 20261106,valuation.chips.boards.沪深主板.trapped,46.0
 20261106,valuation.chips.boards.科创板.trapped,63.1
 20261106,valuation.chips.deep_share,6.3
+20261106,valuation.chips.history.trapped.last,49.6
 20261106,valuation.chips.trapped,49.6
 20261106,valuation.margin.buy_pct,17.6
 20261106,valuation.margin.buy_ratio,7.86
 20261106,valuation.margin.drawdown,-25.1
 20261106,valuation.margin.lev,2.509
+20261106,valuation.margin.lev_hist.values.last,2.509
 20261106,valuation.margin.lev_pct,64.2
 20261106,valuation.margin.net5,-603.0
 20261106,valuation.margin.rzye,22475.0
@@ -643,6 +648,9 @@ trade_date,key,value
 20261109,concentration.rows.黄金.today,63.9972720620081
 20261109,concentration.rows.黄金.trapped,46.2
 20261109,concentration.rows.黄金.yday,61.91942513361075
+20261109,etf_flow.cum.last,2715.8511829999993
+20261109,etf_flow.daily.last,-1.2637499999999733
+20261109,etf_flow.index_close.last,4056.1081
 20261109,fingerprint.conclusion.big,-32.0
 20261109,fingerprint.groups.全部十六只.chg_pct,-30.0
 20261109,fingerprint.groups.全部十六只.n,16.0
@@ -888,11 +896,13 @@ trade_date,key,value
 20261109,valuation.chips.boards.沪深主板.trapped,45.8
 20261109,valuation.chips.boards.科创板.trapped,62.0
 20261109,valuation.chips.deep_share,8.4
+20261109,valuation.chips.history.trapped.last,49.4
 20261109,valuation.chips.trapped,49.4
 20261109,valuation.margin.buy_pct,20.7
 20261109,valuation.margin.buy_ratio,8.0
 20261109,valuation.margin.drawdown,-24.7
 20261109,valuation.margin.lev,2.517
+20261109,valuation.margin.lev_hist.values.last,2.517
 20261109,valuation.margin.lev_pct,65.0
 20261109,valuation.margin.net5,-356.0
 20261109,valuation.margin.rzye,22595.0
