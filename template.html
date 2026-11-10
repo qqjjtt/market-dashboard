@@ -83,6 +83,20 @@
   /* segmented toggle */
   .seg { display: inline-flex; background: var(--surface); border-radius: 6px; padding: 2px; gap: 2px; }
   .seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 4px; cursor: pointer; }
+  .seg button:disabled { opacity: .4; cursor: not-allowed; }
+  .sf-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 8px; }
+  .sf-dates { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .sf-dates input, .sf-select { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--hair); border-radius: 6px; padding: 3px 8px; }
+  .sf-select { max-width: 100%; }
+  .sf-note { margin: 0 0 10px; line-height: 1.6; }
+  .sf-turn .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; padding: 4px 0; font-size: 14px; }
+  .sf-turn .row b { font-weight: 600; flex: none; }
+  .sf-chip { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--hair); border-radius: 999px; padding: 1px 10px; cursor: pointer; }
+  .sf-legend { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .sf-detail-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .sf-detail .tiles { margin-bottom: 10px; }
+  .sf-rich > .card { margin-top: 0; }
+  @media (max-width: 560px) { .sf-detail .tiles { gap: 6px; } .sec-title .ctl .seg button { padding: 4px 8px; } }
   .seg button[aria-selected="true"] { background: var(--bg); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--hair); }
 
   /* index strip */
@@ -1147,26 +1161,283 @@ function renderLiquidity(p) {
 }
 
 /* ================= sector ================= */
+/* ---- 纯函数：不碰 DOM。矩阵 M = {dates, names, net, pct}，行 = 行业，列 = 交易日，缺失为 null ---- */
+var SF_MIN_DAYS = 10;                                       /* 热力图与明细至少展示的交易日数 */
+var SF_PERIODS = [{ key: "d1", label: "当日", n: 1 }, { key: "d5", label: "5 日", n: 5 }, { key: "d10", label: "10 日", n: 10 },
+  { key: "d20", label: "20 日", n: 20 }, { key: "d60", label: "60 日", n: 60 }, { key: "custom", label: "自定义" }];
+
+/* 矩阵校验并清洗：结构不对返回 null；非数值一律变 null */
+function sfClean(m) {
+  if (!m || !Array.isArray(m.dates) || !Array.isArray(m.names) || !Array.isArray(m.net) || !Array.isArray(m.pct)) return null;
+  var nd = m.dates.length, nn = m.names.length;
+  if (nd < 2 || !nn || m.net.length !== nn || m.pct.length !== nn) return null;
+  for (var i = 0; i < nd; i++) {
+    if (typeof m.dates[i] !== "string" || !/^\d{8}$/.test(m.dates[i]) || (i && m.dates[i] <= m.dates[i - 1])) return null;
+  }
+  var clean = function (rows) {
+    var out = [];
+    for (var r = 0; r < nn; r++) {
+      if (!Array.isArray(rows[r]) || rows[r].length !== nd) return null;
+      out.push(rows[r].map(function (v) { return isNum(v) ? v : null; }));
+    }
+    return out;
+  };
+  var net = clean(m.net), pct = clean(m.pct);
+  if (!net || !pct) return null;
+  return { dates: m.dates.slice(), names: m.names.map(String), net: net, pct: pct };
+}
+/* 区间下标 [i0, i1]（含）。custom 用起止日期 YYYYMMDD：起点取 ≥ 的第一个交易日，终点取 ≤ 的最后一个交易日，起 > 止则交换 */
+function sfRange(dates, key, cs, ce) {
+  var n = dates.length, last = n - 1, i0, i1 = last;
+  if (key === "custom") {
+    if (cs > ce) { var t = cs; cs = ce; ce = t; }
+    i0 = 0; i1 = last;
+    for (var a = 0; a < n; a++) if (dates[a] >= cs) { i0 = a; break; }
+    for (var b = last; b >= 0; b--) if (dates[b] <= ce) { i1 = b; break; }
+    if (i0 > i1) i0 = i1;
+    return [i0, i1];
+  }
+  var p = SF_PERIODS.filter(function (x) { return x.key === key; })[0];
+  i0 = Math.max(0, last - ((p && p.n) || 1) + 1);
+  return [i0, i1];
+}
+/* 区间不足 SF_MIN_DAYS 个交易日时向前补足 */
+function sfExtend(i0, i1) { return i1 - i0 + 1 >= SF_MIN_DAYS ? [i0, i1] : [Math.max(0, i1 - SF_MIN_DAYS + 1), i1]; }
+function sfMedian(vals) {
+  var v = vals.filter(isNum).sort(function (a, b) { return a - b; }), n = v.length;
+  if (!n) return null;
+  return n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+}
+/* 每个交易日全行业净额的中位数（相对强弱的基准） */
+function sfDayMedians(M) {
+  return M.dates.map(function (_, j) { return sfMedian(M.net.map(function (row) { return row[j]; })); });
+}
+/* 一个行业的逐日序列：raw = 原始净额；rel = 减去当日全行业中位数；当日为空仍为空 */
+function sfSeries(M, row, mode, med) {
+  return M.net[row].map(function (v, j) { return !isNum(v) ? null : mode === "rel" ? (isNum(med[j]) ? v - med[j] : null) : v; });
+}
+/* 区间累计：{sum, n, pos}，n = 非空天数，pos = 值 > 0 的天数；全空 sum 为 null */
+function sfSum(vals, i0, i1) {
+  var s = 0, n = 0, pos = 0;
+  for (var i = i0; i <= i1; i++) if (isNum(vals[i])) { s += vals[i]; n++; if (vals[i] > 0) pos++; }
+  return { sum: n ? s : null, n: n, pos: pos };
+}
+/* 区间涨跌幅（%）：每日涨跌幅复利累计，缺失日跳过；全缺失为 null */
+function sfChange(pct, i0, i1) {
+  var f = 1, n = 0;
+  for (var i = i0; i <= i1; i++) if (isNum(pct[i])) { f *= 1 + pct[i] / 100; n++; }
+  return n ? (f - 1) * 100 : null;
+}
+/* 全行业排行：按区间累计降序，全空的行业不进榜 */
+function sfRank(M, mode, med, i0, i1) {
+  var rows = [];
+  M.names.forEach(function (name, r) {
+    var s = sfSum(sfSeries(M, r, mode, med), i0, i1);
+    if (s.sum === null) return;
+    rows.push({ row: r, name: name, sum: s.sum, n: s.n, pos: s.pos, chg: sfChange(M.pct[r], i0, i1) });
+  });
+  return rows.sort(function (a, b) { return b.sum - a.sum; });
+}
+/* 排行条：流入前 10 + 流出前 10（不足 20 个就全要），仍按值降序 */
+function sfBarRows(rank) { return rank.length <= 20 ? rank.slice() : rank.slice(0, 10).concat(rank.slice(-10)); }
+/* 转向：区间对半分，前后半段累计符号相反；各取后半段绝对值最大的前 5 个 */
+function sfTurning(M, mode, med, i0, i1) {
+  var len = i1 - i0 + 1, h = Math.floor(len / 2), toIn = [], toOut = [];
+  if (len < SF_MIN_DAYS) return { toIn: toIn, toOut: toOut };
+  M.names.forEach(function (name, r) {
+    var v = sfSeries(M, r, mode, med), a = sfSum(v, i0, i0 + h - 1).sum, b = sfSum(v, i0 + h, i1).sum;
+    if (!isNum(a) || !isNum(b)) return;
+    if (a < 0 && b > 0) toIn.push({ name: name, v: b });
+    else if (a > 0 && b < 0) toOut.push({ name: name, v: b });
+  });
+  var top = function (l) { return l.sort(function (x, y) { return Math.abs(y.v) - Math.abs(x.v); }).slice(0, 5).map(function (x) { return x.name; }); };
+  return { toIn: top(toIn), toOut: top(toOut) };
+}
+/* 热力图的列：区间 ≤ 25 个交易日一列一天，更长按自然周（周一为界）分组 */
+function sfWeekKey(d) {
+  var t = Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8));
+  return t - ((new Date(t).getUTCDay() + 6) % 7) * 864e5;
+}
+function sfColumns(dates, i0, i1) {
+  var cols = [], i;
+  if (i1 - i0 + 1 <= 25) {
+    for (i = i0; i <= i1; i++) cols.push({ i0: i, i1: i });
+    return cols;
+  }
+  var key = null;
+  for (i = i0; i <= i1; i++) {
+    var k = sfWeekKey(dates[i]);
+    if (k !== key) { cols.push({ i0: i, i1: i }); key = k; } else cols[cols.length - 1].i1 = i;
+  }
+  return cols;
+}
+/* 分位数（线性插值），vals 不要求有序；空返回 null */
+function sfQuantile(vals, q) {
+  var v = vals.filter(isNum).sort(function (a, b) { return a - b; });
+  if (!v.length) return null;
+  var pos = (v.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return v[lo] + (v[hi] - v[lo]) * (pos - lo);
+}
+/* 逐日累计（空值日沿用前一天的累计；第一个非空值之前为 null） */
+function sfRunning(vals) {
+  var s = null;
+  return vals.map(function (v) { if (isNum(v)) s = (s === null ? 0 : s) + v; return s; });
+}
+function sfRunningChange(pct) {
+  var f = null;
+  return pct.map(function (v) { if (isNum(v)) f = (f === null ? 1 : f) * (1 + v / 100); return f === null ? null : (f - 1) * 100; });
+}
+
+/* ---- 历史矩阵：首次打开板块流向页时取一次，结果缓存 ---- */
+var SF_HIST = null;
+function sfLoad() {
+  if (SF_HIST) return SF_HIST;
+  var h = DATA.sector_flow && DATA.sector_flow.hist, file = h && typeof h.file === "string" ? h.file : "";
+  SF_HIST = new Promise(function (resolve) {
+    if (!file || typeof fetch !== "function" || location.protocol === "file:") { resolve(null); return; }
+    fetch(file + "?v=" + encodeURIComponent((DATA.meta || {}).generated_at || ""))
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (m) { resolve(sfClean(m)); })
+      .catch(function () { resolve(null); });
+  });
+  return SF_HIST;
+}
+
+function sfIso(d) { return d.slice(0, 4) + "-" + d.slice(4, 6) + "-" + d.slice(6, 8); }
+function sfUnit(mode) { return mode === "rel" ? "相对强弱" : "净额"; }
+
 function renderSector(p) {
-  var S = DATA.sector_flow || {}, mode = "day", chart = null;
-  var nd = S.d5 && isNum(S.d5.days) && S.d5.days > 0 ? S.d5.days : 5;
-  var seg = makeSegmented([{ key: "day", label: "当日" }, { key: "d5", label: "近 " + nd + " 日累计" }], "day", function (k) { mode = k; draw(); });
+  var S = DATA.sector_flow || {}, M = null, med = null, chart = null, heat = null, det = null;
+  var st = { period: "d1", mode: "raw", userMode: false, cs: "", ce: "", sel: null, userSel: false, loaded: false };
+  var cur = { rows: [], rank: [], heatRows: [], heatCols: [], range: [0, 0] };
+  var dirty = false;
+
   guard(p, function () { heroBand(p, "sector"); });
-  secTitle(p, "行业资金净额",
-    "同花顺行业口径 · 净额 = 主动买入 − 主动卖出，单位亿元" + (S.date ? " · 截至 " + fmtDay(S.date) : ""), seg);
+  var periodSeg = makeSegmented(SF_PERIODS,
+    st.period, function (k) { setPeriod(k); });
+  var modeSeg = makeSegmented([{ key: "raw", label: "原始净额" }, { key: "rel", label: "相对强弱" }], st.mode, function (k) {
+    st.mode = k; st.userMode = true; update();
+  });
+  secTitle(p, "行业资金净额", "同花顺行业口径 · 净额 = 主动买入 − 主动卖出，单位亿元" + (S.date ? " · 截至 " + fmtDay(S.date) : ""), periodSeg);
+  var ctl = el("div", "sf-ctl"), dateRow = el("span", "sf-dates");
+  var inS = el("input"), inE = el("input");
+  inS.type = "date"; inE.type = "date";
+  inS.setAttribute("aria-label", "起始日期"); inE.setAttribute("aria-label", "结束日期");
+  add(dateRow, el("label", null, "起"), inS, el("label", null, "止"), inE);
+  dateRow.style.display = "none";
+  add(ctl, modeSeg, dateRow);
+  p.appendChild(ctl);
+  var note = el("div", "note sf-note"), warn = el("div", "note sf-note");
+  p.appendChild(note); p.appendChild(warn);
   var card = el("div", "card chart-card"), box = el("div");
   box.id = "sector-chart";
   card.appendChild(box); p.appendChild(card);
 
-  function rowsFor(k) {
-    var g = S[k] || {}, seen = {};
+  var rich = el("div", "sf-rich");
+  rich.style.display = "none";
+  var turnCard = el("div", "card sf-turn");
+  rich.appendChild(turnCard);
+  var heatHead = secTitle(rich, "轮动热力图", "…");
+  var heatCard = el("div", "card chart-card"), heatBox = el("div");
+  var legend = el("div", "sf-legend", "红 流入 · 绿 流出，颜色越深金额越大");
+  add(heatCard, heatBox, legend);
+  rich.appendChild(heatCard);
+  secTitle(rich, "行业明细", "点排行条、热力图格或转向提示里的行业，在这里看它的走势");
+  var detCard = el("div", "card sf-detail"), detHead = el("div", "sf-detail-head"), select = el("select", "sf-select");
+  select.setAttribute("aria-label", "选择行业");
+  var tiles = el("div", "tiles"), detBox = el("div");
+  add(detHead, select);
+  add(detCard, detHead, tiles, detBox);
+  rich.appendChild(detCard);
+  p.appendChild(rich);
+
+  function setSeg(seg, keys, key, disabled) {
+    Array.prototype.forEach.call(seg.querySelectorAll("button"), function (b, i) {
+      b.setAttribute("aria-selected", keys[i] === key ? "true" : "false");
+      b.disabled = !!(disabled && disabled[keys[i]]);
+    });
+  }
+  function setPeriod(k) {
+    st.period = k;
+    if (!st.userMode) st.mode = k === "d1" || k === "d5" ? "raw" : "rel";
+    update();
+  }
+  function onDates() {
+    var a = inS.value.replace(/-/g, ""), b = inE.value.replace(/-/g, "");
+    if (!/^\d{8}$/.test(a) || !/^\d{8}$/.test(b)) return;
+    st.cs = a; st.ce = b; update();
+  }
+  inS.addEventListener("change", onDates);
+  inE.addEventListener("change", onDates);
+
+  /* 选中行业：切换明细并滚动到可见 */
+  function pick(name) {
+    if (!M || !name) return;
+    st.sel = name; st.userSel = true;
+    drawDetail();
+    detCard.scrollIntoView({ block: "nearest" });
+  }
+
+  function update() {
+    var keys = SF_PERIODS.map(function (x) { return x.key; }), dis = {};
+    if (!M) {
+      keys.forEach(function (k) { if (k !== "d1" && k !== "d5") dis[k] = true; });
+      if (st.period !== "d1" && st.period !== "d5") st.period = "d1";
+      st.mode = "raw";
+    }
+    setSeg(periodSeg, keys, st.period, dis);
+    modeSeg.style.display = M ? "" : "none";
+    setSeg(modeSeg, ["raw", "rel"], st.mode);
+    dateRow.style.display = M && st.period === "custom" ? "" : "none";
+    rich.style.display = M ? "" : "none";
+    if (!M) {
+      warn.textContent = st.loaded ? "历史数据未加载，只能看当日与近 5 日" : "历史数据加载中…";
+      note.textContent = "";
+      cur.rows = fallbackRows(st.period);
+      drawBar();
+      return;
+    }
+    warn.textContent = "";
+    var r = sfRange(M.dates, st.period, st.cs, st.ce);
+    cur.range = r;
+    if (st.period === "custom") {
+      inS.value = sfIso(M.dates[r[0]]); inE.value = sfIso(M.dates[r[1]]);
+      st.cs = M.dates[r[0]]; st.ce = M.dates[r[1]];
+    }
+    var days = r[1] - r[0] + 1;
+    cur.rank = sfRank(M, st.mode, med, r[0], r[1]);
+    cur.rows = sfBarRows(cur.rank);
+    var txt = "口径：" + sfUnit(st.mode) + " · " + fmtDateLong(M.dates[r[0]]) + " 至 " + fmtDateLong(M.dates[r[1]]) + " · 共 " + days + " 个交易日";
+    var wanted = SF_PERIODS.filter(function (x) { return x.key === st.period; })[0];
+    if (wanted && wanted.n && wanted.n > days) txt += "（历史数据只有 " + days + " 个交易日）";
+    if (st.mode === "rel") txt += "。相对强弱：扣掉当天全行业的普遍水平后，比别的行业多流入还是多流出";
+    if (days >= SF_MIN_DAYS) txt += "。长周期里多数行业的原始净额都是负的，所以默认看相对强弱";
+    note.textContent = txt;
+    drawBar();
+    drawTurn();
+    drawHeat();
+    var names = cur.rank.map(function (x) { return x.name; });
+    if (!st.userSel || names.indexOf(st.sel) < 0) st.sel = names[0] || null;
+    select.textContent = "";
+    names.forEach(function (nm) { var o = el("option", null, nm); o.value = nm; select.appendChild(o); });
+    if (st.sel) select.value = st.sel;
+    drawDetail();
+  }
+  select.addEventListener("change", function () { st.sel = select.value; st.userSel = true; drawDetail(); });
+
+  function fallbackRows(period) {
+    var g = (period === "d5" ? S.d5 : S.day) || {}, seen = {};
     return (g.inflow || []).concat(g.outflow || []).filter(function (r) {
       if (!r || !isNum(r.net) || seen[r.name]) return false;
       seen[r.name] = true; return true;
-    }).sort(function (a, b) { return b.net - a.net; });
+    }).sort(function (a, b) { return b.net - a.net; }).map(function (r) {
+      return { name: r.name, sum: r.net, chg: isNum(r.pct) ? r.pct : null, n: 0, pos: 0 };
+    });
   }
-  function draw() {
-    var rows = rowsFor(mode);
+
+  function sizeBox(b, h) { b.style.height = h + "px"; }
+  function drawBar() {
+    var rows = cur.rows, narrow = isNarrow(), unit = sfUnit(st.mode);
     if (!rows.length || typeof echarts === "undefined") {
       chart = dropChart(chart);
       box.style.height = "auto";
@@ -1174,16 +1445,22 @@ function renderSector(p) {
       return;
     }
     if (!chart) box.textContent = "";
-    var narrow = isNarrow();
-    box.style.height = (rows.length * (narrow ? 34 : 30) + 30) + "px";
-    if (!chart) chart = makeChart(box);
+    sizeBox(box, rows.length * (narrow ? 34 : 30) + 30);
+    if (!chart) {
+      chart = makeChart(box);
+      if (chart) chart.on("click", function (q) { var r = cur.rows[q.dataIndex]; if (r && M) pick(r.name); });
+    }
     if (!chart) return;
-    var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.net); })) || 1, lim = maxAbs * 1.28;
+    var maxAbs = Math.max.apply(null, rows.map(function (r) { return Math.abs(r.sum); })) || 1, lim = maxAbs * (narrow ? 1.5 : 1.35);
     chart.setOption(baseOpt({
       grid: { left: narrow ? 78 : 112, right: 10, top: 6, bottom: 22 },
       tooltip: tip({ trigger: "axis", axisPointer: { type: "shadow" }, formatter: function (ps) {
-        var r = rows[ps[0].dataIndex];
-        return esc(r.name) + "<br>净额 " + esc(fmtSigned(r.net, 2)) + " 亿" + (isNum(r.pct) ? "<br>涨跌幅 " + esc(fmtSigned(r.pct, 2)) + "%" : "");
+        var r = cur.rows[ps[0].dataIndex];
+        if (!r) return "";
+        var out = esc(r.name) + "<br>" + (st.mode === "rel" ? "区间累计（相对强弱） " : "净额 ") + esc(fmtSigned(r.sum, 2)) + " 亿" +
+          (isNum(r.chg) ? "<br>" + (M && cur.range[1] > cur.range[0] ? "区间涨跌幅 " : "涨跌幅 ") + esc(fmtSigned(r.chg, 2)) + "%" : "");
+        if (M && r.n >= 2) out += "<br>" + (st.mode === "rel" ? "强于全行业 " : "净流入 ") + r.pos + "/" + r.n + " 日";
+        return out;
       } }),
       xAxis: { type: "value", min: -lim, max: lim, splitNumber: 4,
         axisLabel: { color: C.muted, fontSize: 12, hideOverlap: true, showMinLabel: false, showMaxLabel: false, formatter: function (v) { return v === 0 ? "0" : fmtNum(v, 0); } },
@@ -1192,21 +1469,179 @@ function renderSector(p) {
         axisLine: { onZero: false, show: false }, axisTick: { show: false },
         axisLabel: { interval: 0, margin: 8, color: C.ink, fontSize: 12, lineHeight: 15,
           formatter: function (v, i) {
-            var r = rows[i], pt = r && isNum(r.pct) ? fmtSigned(r.pct, 2) + "%" : DASH;
-            return "{n|" + v + "}\n{" + (!isNum(r && r.pct) || r.pct === 0 ? "g" : r.pct > 0 ? "u" : "d") + "|" + pt + "}";
+            var r = rows[i], pt = r && isNum(r.chg) ? fmtSigned(r.chg, 2) + "%" : DASH;
+            return "{n|" + v + "}\n{" + (!isNum(r && r.chg) || r.chg === 0 ? "g" : r.chg > 0 ? "u" : "d") + "|" + pt + "}";
           },
           rich: { n: { fontSize: 12, color: C.ink, align: "right" }, u: { fontSize: 12, color: C.up, align: "right" },
                   d: { fontSize: 12, color: C.down, align: "right" }, g: { fontSize: 12, color: C.muted, align: "right" } } } },
       series: [{ type: "bar", barWidth: narrow ? 12 : 14,
         data: rows.map(function (r) {
-          return { value: r.net, itemStyle: { color: r.net >= 0 ? C.up : C.down, borderRadius: r.net >= 0 ? [0, 3, 3, 0] : [3, 0, 0, 3] }, label: { position: r.net >= 0 ? "right" : "left" } };
+          return { value: r.sum, itemStyle: { color: r.sum >= 0 ? C.up : C.down, borderRadius: r.sum >= 0 ? [0, 3, 3, 0] : [3, 0, 0, 3] }, label: { position: r.sum >= 0 ? "right" : "left" } };
         }),
         label: { show: true, color: C.ink, fontSize: 12, formatter: function (q) { return fmtSigned(q.value, 1); } } }]
     }), true);
     chart.resize();
   }
-  draw();
-  onBreakpoint(draw);
+
+  function chipRow(label, names) {
+    var row = el("div", "row");
+    row.appendChild(el("b", null, label));
+    if (!names.length) row.appendChild(el("span", "muted", "无"));
+    names.forEach(function (nm) {
+      var c = el("button", "sf-chip", nm);
+      c.type = "button";
+      c.addEventListener("click", function () { pick(nm); });
+      row.appendChild(c);
+    });
+    return row;
+  }
+  function drawTurn() {
+    var r = cur.range, days = r[1] - r[0] + 1;
+    turnCard.textContent = "";
+    if (days < SF_MIN_DAYS) { turnCard.style.display = "none"; return; }
+    turnCard.style.display = "";
+    var t = sfTurning(M, st.mode, med, r[0], r[1]);
+    turnCard.appendChild(el("div", "note", "转向：区间前半段与后半段方向相反（" + sfUnit(st.mode) + "口径）"));
+    add(turnCard, chipRow("由流出转为流入：", t.toIn), chipRow("由流入转为流出：", t.toOut));
+  }
+
+  function colLabel(c) { return fmtDay(M.dates[c.i1]); }
+  function colRange(c) { return c.i0 === c.i1 ? fmtDateLong(M.dates[c.i0]) : fmtDateLong(M.dates[c.i0]) + " 至 " + fmtDateLong(M.dates[c.i1]); }
+  function drawHeat() {
+    var r = cur.range, ext = sfExtend(r[0], r[1]), narrow = isNarrow();
+    var top = cur.rank.slice().sort(function (a, b) { return Math.abs(b.sum) - Math.abs(a.sum); }).slice(0, 20)
+      .sort(function (a, b) { return b.sum - a.sum; });
+    var cols = sfColumns(M.dates, ext[0], ext[1]);
+    cur.heatRows = top; cur.heatCols = cols;
+    var small = heatHead.querySelector("small");
+    small.textContent = "按" + sfUnit(st.mode) + "累计排名前 20 的行业 · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
+      (cols.length && cols[0].i0 !== cols[0].i1 ? " · 每列一周" : " · 每列一天") + (ext[0] !== r[0] ? "（区间不足 " + SF_MIN_DAYS + " 个交易日，已向前补足）" : "");
+    var data = [], vals = [];
+    top.forEach(function (row, y) {
+      var v = sfSeries(M, row.row, st.mode, med);
+      cols.forEach(function (c, x) {
+        var s = sfSum(v, c.i0, c.i1).sum;
+        if (s === null) return;
+        data.push([x, y, s]); vals.push(Math.abs(s));
+      });
+    });
+    if (!top.length || !data.length || typeof echarts === "undefined") {
+      heat = dropChart(heat);
+      heatBox.style.height = "auto";
+      chartMsg(heatBox, data.length ? "图表库未加载（需联网访问 cdnjs）" : "无数据");
+      return;
+    }
+    if (!heat) heatBox.textContent = "";
+    var lim = sfQuantile(vals, 0.95) || 1, rowH = narrow ? 24 : 26;
+    sizeBox(heatBox, top.length * rowH + 40);
+    if (!heat) {
+      heat = makeChart(heatBox);
+      if (heat) heat.on("click", function (q) { var rr = cur.heatRows[q.data && q.data[1]]; if (rr) pick(rr.name); });
+    }
+    if (!heat) return;
+    var showNum = !narrow && cols.length <= 25;
+    heat.setOption(baseOpt({
+      grid: { left: narrow ? 78 : 112, right: 10, top: 6, bottom: 28 },
+      tooltip: tip({ trigger: "item", formatter: function (q) {
+        var rr = cur.heatRows[q.data[1]], c = cur.heatCols[q.data[0]];
+        if (!rr || !c) return "";
+        var chg = sfChange(M.pct[rr.row], c.i0, c.i1);
+        return esc(rr.name) + "<br>" + esc(colRange(c)) + "<br>" + (st.mode === "rel" ? "相对强弱 " : "净额 ") + esc(fmtSigned(q.data[3], 2)) + " 亿元" +
+          (isNum(chg) ? "<br>涨跌幅 " + esc(fmtSigned(chg, 2)) + "%" : "");
+      } }),
+      visualMap: { type: "continuous", show: false, min: -lim, max: lim, dimension: 2, inRange: { color: [C.down, "#eeeeec", C.up] }, outOfRange: { color: "#eeeeec" } },
+      xAxis: { type: "category", data: cols.map(colLabel), splitArea: { show: false }, axisTick: { show: false },
+        axisLine: { lineStyle: { color: C.axis } }, axisLabel: { color: C.muted, fontSize: 12, hideOverlap: true } },
+      yAxis: { type: "category", inverse: true, data: top.map(function (x) { return x.name; }), axisTick: { show: false }, axisLine: { show: false },
+        axisLabel: { interval: 0, color: C.ink, fontSize: 12, width: narrow ? 70 : 100, overflow: "truncate" } },
+      series: [{ type: "heatmap", itemStyle: { borderColor: "#fff", borderWidth: 1 },
+        data: data.map(function (d) { return [d[0], d[1], Math.max(-lim, Math.min(lim, d[2])), d[2]]; }),
+        label: { show: showNum, fontSize: 10, color: C.ink, formatter: function (q) { return fmtSigned(q.data[3], Math.abs(q.data[3]) >= 100 ? 0 : 1); } },
+        emphasis: { itemStyle: { borderColor: C.ink, borderWidth: 1 } } }]
+    }), true);
+    heat.resize();
+  }
+
+  function drawDetail() {
+    tiles.textContent = "";
+    var row = st.sel ? M.names.indexOf(st.sel) : -1;
+    if (row < 0) {
+      det = dropChart(det);
+      detBox.style.height = "auto";
+      chartMsg(detBox, "无数据");
+      return;
+    }
+    if (select.value !== st.sel) select.value = st.sel;
+    var r = cur.range, ext = sfExtend(r[0], r[1]), narrow = isNarrow();
+    var v = sfSeries(M, row, st.mode, med), sum = sfSum(v, r[0], r[1]), chg = sfChange(M.pct[row], r[0], r[1]);
+    var t1 = tile("区间累计" + sfUnit(st.mode), fmtSigned(sum.sum, 2), "亿元"), t2 = tile("区间涨跌幅", fmtSigned(chg, 2), "%");
+    var t3 = tile(st.mode === "rel" ? "强于全行业天数" : "净流入天数", sum.n ? sum.pos + "/" + sum.n : DASH, sum.n ? "日" : "");
+    t1.querySelector(".v").classList.add(dirClass(sum.sum));
+    t2.querySelector(".v").classList.add(dirClass(chg));
+    add(tiles, t1, t2, t3);
+    if (typeof echarts === "undefined") { det = dropChart(det); detBox.style.height = "auto"; chartMsg(detBox, "图表库未加载（需联网访问 cdnjs）"); return; }
+    if (!det) detBox.textContent = "";
+    sizeBox(detBox, 450);
+    if (!det) det = makeChart(detBox);
+    if (!det) return;
+    var dates = M.dates.slice(ext[0], ext[1] + 1), dv = v.slice(ext[0], ext[1] + 1);
+    var cum = sfRunning(dv), cpct = sfRunningChange(M.pct[row].slice(ext[0], ext[1] + 1));
+    var pre = st.mode === "rel" ? "相对强弱" : "净额";
+    var axisLab = function (show) { return { show: show, color: C.muted, fontSize: 12, hideOverlap: true, formatter: function (x) { return fmtDay(x); } }; };
+    var xAx = function (gi, show) {
+      return { type: "category", gridIndex: gi, data: dates, boundaryGap: true, axisTick: { show: false }, axisLine: { lineStyle: { color: C.axis } },
+        axisLabel: axisLab(show), axisPointer: { show: true } };
+    };
+    var yAx = function (gi, fmt) {
+      return { type: "value", gridIndex: gi, scale: false, splitNumber: 3, axisLabel: { color: C.muted, fontSize: 12, formatter: fmt }, splitLine: { lineStyle: { color: C.grid } },
+        axisLine: { show: false }, axisTick: { show: false } };
+    };
+    var ttl = function (text, top) { return { text: text, left: 0, top: top, textStyle: { color: C.muted, fontSize: 12, fontWeight: 400 } }; };
+    det.setOption(baseOpt({
+      title: [ttl("累计" + pre + "（亿元）", 0), ttl("每日" + pre + "（亿元）", 160), ttl("累计涨跌幅（%）", 296)],
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      grid: [{ left: 52, right: 12, top: 24, height: 114 }, { left: 52, right: 12, top: 190, height: 84 }, { left: 52, right: 12, top: 326, height: 84 }],
+      tooltip: tip({ trigger: "axis", axisPointer: { type: "line", lineStyle: { color: C.axis } }, formatter: function (ps) {
+        var i = ps[0].dataIndex;
+        return esc(fmtDateLong(dates[i])) + "<br>累计" + pre + " " + esc(fmtSigned(cum[i], 2)) + " 亿元<br>当日" + pre + " " + esc(fmtSigned(dv[i], 2)) +
+          " 亿元<br>累计涨跌幅 " + esc(fmtSigned(cpct[i], 2)) + "%";
+      } }),
+      xAxis: [xAx(0, false), xAx(1, false), xAx(2, true)],
+      yAxis: [yAx(0, function (x) { return fmtNum(x, 0); }), yAx(1, function (x) { return fmtNum(x, 0); }), yAx(2, function (x) { return fmtNum(x, 1); })],
+      series: [
+        { type: "line", xAxisIndex: 0, yAxisIndex: 0, data: cum, showSymbol: false, connectNulls: true, lineStyle: { width: 2, color: C.ink }, itemStyle: { color: C.ink } },
+        { type: "bar", xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 14,
+          data: dv.map(function (x) { return isNum(x) ? { value: x, itemStyle: { color: x >= 0 ? C.up : C.down } } : null; }) },
+        { type: "line", xAxisIndex: 2, yAxisIndex: 2, data: cpct, showSymbol: false, connectNulls: true, lineStyle: { width: 2, color: C.cold }, itemStyle: { color: C.cold } }
+      ]
+    }), true);
+    det.resize();
+  }
+
+  /* 默认的自定义区间：最近 20 个交易日 */
+  function initCustom() {
+    var n = M.dates.length;
+    st.cs = M.dates[Math.max(0, n - 20)]; st.ce = M.dates[n - 1];
+    inS.min = inE.min = sfIso(M.dates[0]);
+    inS.max = inE.max = sfIso(M.dates[n - 1]);
+    inS.value = sfIso(st.cs); inE.value = sfIso(st.ce);
+  }
+
+  update();
+  onBreakpoint(function () {
+    if (rich.offsetWidth === 0 && box.offsetWidth === 0) { dirty = true; return; }
+    update();
+  });
+  window.addEventListener("hashchange", function () { if (dirty && location.hash === "#sector") { dirty = false; update(); } });
+  sfLoad().then(function (m) {
+    st.loaded = true;
+    if (m) {
+      M = m; med = sfDayMedians(M); initCustom();
+      if (st.period === "d1" && !st.userMode) st.mode = "raw";
+    }
+    if (p.offsetWidth === 0) { dirty = true; return; }           /* 页面已切走：回到板块流向时再画 */
+    try { update(); } catch (e) { if (window.console) console.error(e); }
+  });
 }
 
 /* ================= team ================= */
