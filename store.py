@@ -72,14 +72,32 @@ def save_csv(df: pd.DataFrame, path, keys) -> None:
 
 
 def merge_sector(old: pd.DataFrame, new: pd.DataFrame | None) -> pd.DataFrame:
-    """按 (trade_date, industry) 合并，new 覆盖 old；new 中净额为空的行丢掉（不覆盖旧值）；new 为空 → 原样返回 old。"""
+    """按 (trade_date, industry) 合并，new 覆盖 old；new 中净额为空的行丢掉（不覆盖旧值）；new 为空 → 原样返回 old。
+
+    精度保护：数据源只对最近约两周给两位小数，更早的日期是四舍五入到整数亿元的值。
+    对两边都有的行，若新净额是整数、旧净额不是整数、且两者相差不超过 0.5，则净额保留旧值
+    （pct_change 仍取新值），避免回补时把 12.34 覆盖成 12.0。其余情况新覆盖旧。"""
     if new is None or len(new) == 0:
         return old
     n = _typed(new, SECTOR_COLS)
     n = n[n["net_amount"].notna()]
     if n.empty:
         return old
-    both = pd.concat([_typed(old, SECTOR_COLS) if len(old) else _empty(SECTOR_COLS), n], ignore_index=True)
+    o = _typed(old, SECTOR_COLS) if len(old) else _empty(SECTOR_COLS)
+    n = n.drop_duplicates(["trade_date", "industry"], keep="last")
+    if len(o):
+        prev = o.drop_duplicates(["trade_date", "industry"], keep="last").set_index(["trade_date", "industry"])["net_amount"].astype(float)
+        old_net = pd.Series(list(zip(n["trade_date"], n["industry"])), index=n.index).map(prev)
+        nn = n["net_amount"].astype(float)
+        keep = (
+            old_net.notna()
+            & ((nn - nn.round()).abs() < 1e-9)
+            & ((old_net - old_net.round()).abs() >= 1e-9)
+            & ((nn - old_net).abs() <= 0.5 + 1e-9)
+        )
+        n = n.copy()
+        n.loc[keep, "net_amount"] = old_net[keep]
+    both = pd.concat([o, n], ignore_index=True)
     both = both.drop_duplicates(["trade_date", "industry"], keep="last")
     both = both.sort_values(["trade_date", "industry"], kind="stable").reset_index(drop=True)
     for c in ("net_amount", "pct_change"):

@@ -1411,7 +1411,8 @@ function renderSector(p) {
     var wanted = SF_PERIODS.filter(function (x) { return x.key === st.period; })[0];
     if (wanted && wanted.n && wanted.n > days) txt += "（历史数据只有 " + days + " 个交易日）";
     if (st.mode === "rel") txt += "。相对强弱：扣掉当天全行业的普遍水平后，比别的行业多流入还是多流出";
-    if (days >= SF_MIN_DAYS) txt += "。长周期里多数行业的原始净额都是负的，所以默认看相对强弱";
+    if (days >= SF_MIN_DAYS) txt += st.mode === "rel" ? "。长周期里多数行业的原始净额都是负的，所以默认看相对强弱"
+      : "。长周期里多数行业的原始净额都是负的，想比较行业之间的强弱可切到「相对强弱」";
     note.textContent = txt;
     drawBar();
     drawTurn();
@@ -1509,12 +1510,11 @@ function renderSector(p) {
   function colRange(c) { return c.i0 === c.i1 ? fmtDateLong(M.dates[c.i0]) : fmtDateLong(M.dates[c.i0]) + " 至 " + fmtDateLong(M.dates[c.i1]); }
   function drawHeat() {
     var r = cur.range, ext = sfExtend(r[0], r[1]), narrow = isNarrow();
-    var top = cur.rank.slice().sort(function (a, b) { return Math.abs(b.sum) - Math.abs(a.sum); }).slice(0, 20)
-      .sort(function (a, b) { return b.sum - a.sum; });
+    var top = cur.rows;
     var cols = sfColumns(M.dates, ext[0], ext[1]);
     cur.heatRows = top; cur.heatCols = cols;
     var small = heatHead.querySelector("small");
-    small.textContent = "按" + sfUnit(st.mode) + "累计排名前 20 的行业 · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
+    small.textContent = (cur.rank.length > 20 ? "与上方排行条相同的 20 个行业（流入前 10 + 流出前 10）" : "全部 " + top.length + " 个行业") + " · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
       (cols.length && cols[0].i0 !== cols[0].i1 ? " · 每列一周" : " · 每列一天") + (ext[0] !== r[0] ? "（区间不足 " + SF_MIN_DAYS + " 个交易日，已向前补足）" : "");
     var data = [], vals = [];
     top.forEach(function (row, y) {
@@ -1556,7 +1556,10 @@ function renderSector(p) {
         axisLabel: { interval: 0, color: C.ink, fontSize: 12, width: narrow ? 70 : 100, overflow: "truncate" } },
       series: [{ type: "heatmap", itemStyle: { borderColor: "#fff", borderWidth: 1 },
         data: data.map(function (d) { return [d[0], d[1], Math.max(-lim, Math.min(lim, d[2])), d[2]]; }),
-        label: { show: showNum, fontSize: 10, color: C.ink, formatter: function (q) { return fmtSigned(q.data[3], Math.abs(q.data[3]) >= 100 ? 0 : 1); } },
+        label: { show: showNum, fontSize: 10, color: C.ink, formatter: function (q) {
+          var v = q.data[3], dg = Math.abs(v) >= 100 ? 0 : 1;
+          return Number(v.toFixed(dg)) === 0 ? (0).toFixed(dg) : fmtSigned(v, dg);
+        } },
         emphasis: { itemStyle: { borderColor: C.ink, borderWidth: 1 } } }]
     }), true);
     heat.resize();

@@ -78,6 +78,49 @@ def test_merge_rounds_to_two_decimals():
     assert m["net_amount"].iloc[0] == 1.23 and m["pct_change"].iloc[0] == 0.99
 
 
+def _net_after_merge(old_net, new_net):
+    old = sec([("20261105", "A", old_net, 0.1)])
+    new = sec([("20261105", "A", new_net, 0.9)])
+    m = store.merge_sector(old, new)
+    assert len(m) == 1
+    return m["net_amount"].iloc[0], m["pct_change"].iloc[0]
+
+
+def test_merge_keeps_old_decimal_when_new_is_rounded_integer():
+    net, pct = _net_after_merge(12.34, 12.0)
+    assert net == 12.34 and pct == 0.9
+
+
+def test_merge_new_integer_far_from_old_overrides():
+    assert _net_after_merge(12.34, 13.0)[0] == 13.0
+
+
+def test_merge_new_decimal_overrides_old_integer():
+    assert _net_after_merge(12.0, 12.34)[0] == 12.34
+
+
+def test_merge_integer_over_integer_overrides():
+    assert _net_after_merge(12.0, 12.0)[0] == 12.0
+
+
+def test_merge_negative_decimal_kept_against_zero():
+    assert _net_after_merge(-0.4, 0.0)[0] == -0.4
+    assert _net_after_merge(-0.4, -0.0)[0] == -0.4
+
+
+def test_merge_half_boundary_keeps_old_decimal():
+    assert _net_after_merge(12.5, 12.0)[0] == 12.5
+    assert _net_after_merge(12.5, 13.0)[0] == 12.5
+
+
+def test_merge_adds_rows_missing_from_old_even_if_integer():
+    old = sec([("20261105", "A", 12.34, 0.1)])
+    new = sec([("20261105", "A", 12.0, 0.2), ("20261105", "B", 3.0, 0.3), ("20261106", "A", 4.0, 0.4)])
+    m = store.merge_sector(old, new)
+    got = {(r.trade_date, r.industry): r.net_amount for r in m.itertuples()}
+    assert got == {("20261105", "A"): 12.34, ("20261105", "B"): 3.0, ("20261106", "A"): 4.0}
+
+
 # ---------- missing_days ----------
 
 def test_missing_days_empty_have_returns_all():
