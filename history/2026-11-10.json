@@ -1,7 +1,7 @@
 {
  "meta": {
   "trade_date": "20261110",
-  "generated_at": "2026-11-11 04:39",
+  "generated_at": "2026-11-11 05:02",
   "demo": false,
   "team_pool": "汇金重仓 7 只",
   "sector_mode": "申万行业",
@@ -13,7 +13,7 @@
    "etf_minutes(510300.SH) 频率超限，返回 None",
    "分钟线 510300.SH 无权限或频率受限（stk_mins 账号限额 1 次/小时），尾盘占比留空"
   ],
-  "code_version": "8f45c09"
+  "code_version": "cacfaf7"
  },
  "conclusions": [
   {
