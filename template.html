@@ -1514,7 +1514,7 @@ function renderSector(p) {
     var cols = sfColumns(M.dates, ext[0], ext[1]);
     cur.heatRows = top; cur.heatCols = cols;
     var small = heatHead.querySelector("small");
-    small.textContent = (cur.rank.length > 20 ? "与上方排行条相同的 20 个行业（流入前 10 + 流出前 10）" : "全部 " + top.length + " 个行业") + " · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
+    small.textContent = (cur.rank.length > 20 ? "与上方排行条相同的 20 个行业（排名前 10 + 后 10）" : "全部 " + top.length + " 个行业") + " · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
       (cols.length && cols[0].i0 !== cols[0].i1 ? " · 每列一周" : " · 每列一天") + (ext[0] !== r[0] ? "（区间不足 " + SF_MIN_DAYS + " 个交易日，已向前补足）" : "");
     var data = [], vals = [];
     top.forEach(function (row, y) {
