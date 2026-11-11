@@ -1528,8 +1528,6 @@ trade_date,key,value
 20261111,fingerprint.groups.行业对照六只.ratio,153.0
 20261111,fingerprint.groups.行业对照六只.today,50.314557857
 20261111,fingerprint.groups.行业对照六只.yday,32.901086842000005
-20261111,fingerprint.tail.today,22.870222660609073
-20261111,fingerprint.tail.yday,20.199181571812865
 20261111,holdings.change,0.0
 20261111,holdings.prev_total,3859.9
 20261111,holdings.rows.159919.SZ.base,354.98

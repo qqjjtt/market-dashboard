@@ -1,11 +1,11 @@
 {
  "meta": {
   "trade_date": "20261111",
-  "generated_at": "2026-11-11 16:50",
+  "generated_at": "2026-11-11 17:19",
   "demo": false,
   "team_pool": "汇金重仓 7 只",
   "sector_mode": "申万行业",
-  "tail_source": "stk_mins·510300",
+  "tail_source": "无分钟数据",
   "warnings": [
    "fx_daily UKOIL 最新日线 20261110 不完整（尚未收完，tick_qty=2，前几根中位数 323798），已丢弃，取前一根",
    "fx_daily USDOLLAR 最新日线 20261110 不完整（尚未收完，tick_qty=287，前几根中位数 8880），已丢弃，取前一根",
@@ -13,9 +13,12 @@
    "fx_daily USDCNH.FXCM 最新日线 20261110 不完整（尚未收完，tick_qty=4256，前几根中位数 72321），已丢弃，取前一根",
    "获利盘 11/11 无数据",
    "获利盘数据截至 11/10",
-   "涨跌停精确家数缺失，市场体温面板的涨停/跌停回退为按涨跌幅近似判定"
+   "涨跌停精确家数缺失，市场体温面板的涨停/跌停回退为按涨跌幅近似判定",
+   "接口频率超限，不重试: stk_mins",
+   "etf_minutes(510300.SH) 频率超限，返回 None",
+   "分钟线 510300.SH 无权限或频率受限（stk_mins 账号限额 1 次/小时），尾盘占比留空"
   ],
-  "code_version": "d23e2e6"
+  "code_version": "20ed73e"
  },
  "conclusions": [
   {
@@ -3993,9 +3996,9 @@
    }
   ],
   "tail": {
-   "today": 22.870222660609073,
-   "yday": 20.199181571812865,
-   "source": "stk_mins·510300"
+   "today": null,
+   "yday": null,
+   "source": "无分钟数据"
   },
   "conclusion": {
    "big": 17,
