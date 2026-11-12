@@ -2157,8 +2157,8 @@
 "label": "初请失业金人数",
 "period": null,
 "major": false,
-"value": null,
-"pre": "189K",
+"value": "200K",
+"pre": "191K",
 "fore": "194K"
 },
 {
@@ -2183,7 +2183,7 @@
 "major": true,
 "value": null,
 "pre": "7.2%",
-"fore": "7.3%"
+"fore": "7.2%"
 },
 {
 "date": "20261113",
@@ -2195,7 +2195,7 @@
 "major": true,
 "value": null,
 "pre": "3,550.0B",
-"fore": null
+"fore": "1,420.0B"
 },
 {
 "date": "20261113",
@@ -2219,7 +2219,7 @@
 "major": true,
 "value": null,
 "pre": "6.3%",
-"fore": null
+"fore": "6.6%"
 },
 {
 "date": "20261116",
