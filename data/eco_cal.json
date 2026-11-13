@@ -2163,37 +2163,37 @@
 },
 {
 "date": "20261113",
-"time": "17:00",
+"time": "16:00",
 "region": "cn",
 "item": "cn_loans",
 "label": "新增人民币贷款 · 十月",
 "period": "十月",
 "major": true,
-"value": null,
+"value": "-100.0B",
 "pre": "1,080.0B",
 "fore": "80.0B"
 },
 {
 "date": "20261113",
-"time": "17:00",
+"time": "16:00",
 "region": "cn",
 "item": "cn_m2",
 "label": "M2 年率 · 十月",
 "period": "十月",
 "major": true,
-"value": null,
+"value": "7.1%",
 "pre": "7.2%",
 "fore": "7.2%"
 },
 {
 "date": "20261113",
-"time": "17:00",
+"time": "16:00",
 "region": "cn",
 "item": "cn_tsf",
 "label": "社会融资规模 · 十月",
 "period": "十月",
 "major": true,
-"value": null,
+"value": "1,150.0B",
 "pre": "3,550.0B",
 "fore": "1,420.0B"
 },
@@ -2339,6 +2339,30 @@
 "major": true,
 "value": null,
 "pre": "4.00%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "03:00",
+"region": "us",
+"item": "us_fomc_stmt",
+"label": "FOMC 货币政策声明",
+"period": null,
+"major": false,
+"value": null,
+"pre": null,
+"fore": null
+},
+{
+"date": "20261210",
+"time": "03:30",
+"region": "us",
+"item": "us_fomc_presser",
+"label": "FOMC 新闻发布会",
+"period": null,
+"major": false,
+"value": null,
+"pre": null,
 "fore": null
 }
 ]
