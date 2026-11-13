@@ -1,0 +1,28 @@
+name: probe-sources
+
+# 备用数据源探测：在 GitHub 的境外服务器上逐个试腾讯、新浪、东方财富、同花顺，并与 tushare 比对。
+# 只读，不改仓库、不部署；结果看运行摘要。改探测脚本或本文件推送时自动跑一次，也可手动触发。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "probe_sources.py"
+      - ".github/workflows/probe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt akshare==1.18.26
+      - run: python probe_sources.py
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
