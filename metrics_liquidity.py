@@ -222,7 +222,8 @@ def rate_expectation(dff, fed30d, band_bp: float = config.RATE_BAND_BP) -> dict:
 def sector_flow_rank(df: pd.DataFrame, end: str, days: int, top: int = 10) -> dict:
     """取 ≤ end 的最近 days 个交易日，按 industry 汇总 net_amount（亿元）；pct 取 end 当日（无则 None）。
 
-    返回 {inflow: 净额降序前 top, outflow: 净额升序前 top, days: 实际汇总的交易日数}，行 = {name, net, pct}。
+    返回 {inflow: 净额 > 0 的降序前 top, outflow: 净额 < 0 的升序前 top, days: 实际汇总的交易日数}，行 = {name, net, pct}。
+    流入 / 流出榜只收对应方向的行业，不足 top 个就少列，不拿反方向的行业凑数。
     days 可能小于请求的 days（数据不足时）；无数据时返回不含 days 的空榜。
     净额缺失（NaN）的行业日不参与汇总，全缺的行业不入榜（不当 0）。
     """
@@ -247,8 +248,8 @@ def sector_flow_rank(df: pd.DataFrame, end: str, days: int, top: int = 10) -> di
 
     asc = net.sort_values(kind="stable")
     desc = net.sort_values(ascending=False, kind="stable")
-    return {"inflow": [_row(n, v) for n, v in desc.head(top).items()],
-            "outflow": [_row(n, v) for n, v in asc.head(top).items()],
+    return {"inflow": [_row(n, v) for n, v in desc[desc > 0].head(top).items()],
+            "outflow": [_row(n, v) for n, v in asc[asc < 0].head(top).items()],
             "days": len(dates)}
 
 

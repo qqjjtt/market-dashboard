@@ -230,9 +230,10 @@ def _flow_df():
 def test_sector_flow_rank_5d():
     r = sector_flow_rank(_flow_df(), "20261105", 5)
     # 窗口 = 20261030..20261105：A=5, B=-8+10=2, C=0
-    assert [x["name"] for x in r["inflow"]] == ["A", "B", "C"]
+    # 流入榜只收净额 > 0，流出榜只收净额 < 0；C 恰好为 0，两边都不进
+    assert [x["name"] for x in r["inflow"]] == ["A", "B"]
     assert r["inflow"][0]["net"] == pytest.approx(5.0)
-    assert [x["name"] for x in r["outflow"]] == ["C", "B", "A"]
+    assert r["outflow"] == []
     assert r["inflow"][0]["pct"] == pytest.approx(0.5)  # pct 取 end 当日
     assert r["days"] == 5
     assert r["inflow"][1]["pct"] == pytest.approx(2.2)
@@ -247,14 +248,23 @@ def test_sector_flow_rank_days_is_actual_number_summed():
 def test_sector_flow_rank_1d_and_top():
     r = sector_flow_rank(_flow_df(), "20261105", 1, top=2)
     assert [x["name"] for x in r["inflow"]] == ["B", "A"]
-    assert [x["name"] for x in r["outflow"]] == ["C", "A"]
+    assert r["outflow"] == []
     assert r["inflow"][0]["net"] == pytest.approx(10.0)
+
+
+def test_sector_flow_rank_only_one_inflow():
+    # 11/12 实况：90 个行业只有 1 个净流入，流入榜就只有它，不拿净流出的行业凑数
+    rows = [("20261112", "养殖业", 1.77, 0.27)] + [("20261112", f"X{i}", -float(i), -1.0) for i in range(1, 15)]
+    r = sector_flow_rank(pd.DataFrame(rows, columns=["trade_date", "industry", "net_amount", "pct_change"]), "20261112", 1)
+    assert [x["name"] for x in r["inflow"]] == ["养殖业"]
+    assert [x["name"] for x in r["outflow"]] == [f"X{i}" for i in range(14, 4, -1)]
 
 
 def test_sector_flow_rank_end_not_in_data_pct_none():
     r = sector_flow_rank(_flow_df(), "20261101", 2)  # 非交易日 → 窗口 1029~1030，pct 取不到
     assert all(x["pct"] is None for x in r["inflow"])
     assert r["inflow"][0]["name"] == "C"
+    assert [x["name"] for x in r["outflow"]] == ["B"]
 
 
 def test_sector_flow_rank_empty_and_nan():

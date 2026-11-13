@@ -1238,8 +1238,11 @@ function sfRank(M, mode, med, i0, i1) {
   });
   return rows.sort(function (a, b) { return b.sum - a.sum; });
 }
-/* 排行条：流入前 10 + 流出前 10（不足 20 个就全要），仍按值降序 */
-function sfBarRows(rank) { return rank.length <= 20 ? rank.slice() : rank.slice(0, 10).concat(rank.slice(-10)); }
+/* 排行条：净额 > 0 的前 10 + 净额 < 0 的前 10（某一方向不足 10 个就少列，不拿反方向凑数），仍按值降序 */
+function sfBarRows(rank) {
+  var pos = rank.filter(function (r) { return r.sum > 0; }), neg = rank.filter(function (r) { return r.sum < 0; });
+  return pos.slice(0, 10).concat(neg.slice(Math.max(neg.length - 10, 0)));
+}
 /* 转向：区间对半分，前后半段累计符号相反；各取后半段绝对值最大的前 5 个 */
 function sfTurning(M, mode, med, i0, i1) {
   var len = i1 - i0 + 1, h = Math.floor(len / 2), toIn = [], toOut = [];
@@ -1410,6 +1413,8 @@ function renderSector(p) {
     var txt = "口径：" + sfUnit(st.mode) + " · " + fmtDateLong(M.dates[r[0]]) + " 至 " + fmtDateLong(M.dates[r[1]]) + " · 共 " + days + " 个交易日";
     var wanted = SF_PERIODS.filter(function (x) { return x.key === st.period; })[0];
     if (wanted && wanted.n && wanted.n > days) txt += "（历史数据只有 " + days + " 个交易日）";
+    var nPos = cur.rank.filter(function (x) { return x.sum > 0; }).length, nNeg = cur.rank.filter(function (x) { return x.sum < 0; }).length;
+    if (nPos < 10 || nNeg < 10) txt += "。这段时间" + (st.mode === "rel" ? "强于全行业" : "净流入") + "的只有 " + nPos + " 个行业、" + (st.mode === "rel" ? "弱于全行业" : "净流出") + "的 " + nNeg + " 个，排行条只列这些";
     if (st.mode === "rel") txt += "。相对强弱：扣掉当天全行业的普遍水平后，比别的行业多流入还是多流出";
     if (days >= SF_MIN_DAYS) txt += st.mode === "rel" ? "。长周期里多数行业的原始净额都是负的，所以默认看相对强弱"
       : "。长周期里多数行业的原始净额都是负的，想比较行业之间的强弱可切到「相对强弱」";
@@ -1429,7 +1434,7 @@ function renderSector(p) {
   function fallbackRows(period) {
     var g = (period === "d5" ? S.d5 : S.day) || {}, seen = {};
     return (g.inflow || []).concat(g.outflow || []).filter(function (r) {
-      if (!r || !isNum(r.net) || seen[r.name]) return false;
+      if (!r || !isNum(r.net) || r.net === 0 || seen[r.name]) return false;
       seen[r.name] = true; return true;
     }).sort(function (a, b) { return b.net - a.net; }).map(function (r) {
       return { name: r.name, sum: r.net, chg: isNum(r.pct) ? r.pct : null, n: 0, pos: 0 };
@@ -1510,11 +1515,11 @@ function renderSector(p) {
   function colRange(c) { return c.i0 === c.i1 ? fmtDateLong(M.dates[c.i0]) : fmtDateLong(M.dates[c.i0]) + " 至 " + fmtDateLong(M.dates[c.i1]); }
   function drawHeat() {
     var r = cur.range, ext = sfExtend(r[0], r[1]), narrow = isNarrow();
-    var top = cur.rows;
+    var top = cur.rank;
     var cols = sfColumns(M.dates, ext[0], ext[1]);
     cur.heatRows = top; cur.heatCols = cols;
     var small = heatHead.querySelector("small");
-    small.textContent = (cur.rank.length > 20 ? "与上方排行条相同的 20 个行业（排名前 10 + 后 10）" : "全部 " + top.length + " 个行业") + " · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
+    small.textContent = "全部 " + top.length + " 个行业，按区间" + sfUnit(st.mode) + "从高到低 · " + fmtDateLong(M.dates[ext[0]]) + " 至 " + fmtDateLong(M.dates[ext[1]]) +
       (cols.length && cols[0].i0 !== cols[0].i1 ? " · 每列一周" : " · 每列一天") + (ext[0] !== r[0] ? "（区间不足 " + SF_MIN_DAYS + " 个交易日，已向前补足）" : "");
     var data = [], vals = [];
     top.forEach(function (row, y) {
