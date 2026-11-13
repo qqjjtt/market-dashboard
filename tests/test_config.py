@@ -13,12 +13,13 @@ def test_sectors():
 def test_workflow_schedule():
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
-    for cron in ("37 13 * * 1-5", "43 14 * * 1-5", "7 1 * * 1-5", "13 2 * * 1-5"):
+    for cron in ("23 4 * * 1-5", "37,7 21-22 * * 0-4", "53 12 * * 1-5", "17,47 6-7 * * 1-5"):
         assert f'cron: "{cron}"' in text
     assert "push:" in text and "paths-ignore:" in text
     assert '"history/**"' in text and '"data/eco_cal.json"' in text
     assert "healthcheck.py site/index.html" in text and "--verify-live" in text
     assert "\n  verify:" in text
+    assert "\n  gate:" in text and "--gate" in text and "needs.gate.outputs.run == 'true'" in text
     assert "!cancelled() && needs.build.result == 'success'" in text
     assert "continue-on-error: true  # 体检" in text
     add_lines = [l for l in text.splitlines() if "git add" in l]

@@ -87,33 +87,69 @@ def test_overall():
 
 
 def test_expected_slots():
-    s = hc.expected_slots(datetime(2026, 11, 9, 9, 10, tzinfo=SH), datetime(2026, 11, 10, 22, 0, tzinfo=SH))
-    assert [x.strftime("%m-%d %H:%M") for x in s] == ["11-09 21:37", "11-10 09:07", "11-10 21:37"]
+    s = hc.expected_slots(datetime(2026, 11, 9, 12, 40, tzinfo=SH), datetime(2026, 11, 10, 22, 0, tzinfo=SH))
+    assert [x.strftime("%m-%d %H:%M") for x in s] == ["11-09 21:00", "11-10 12:30", "11-10 21:00"]
     # 区间左开右闭
-    s = hc.expected_slots(datetime(2026, 11, 9, 9, 7, tzinfo=SH), datetime(2026, 11, 9, 21, 37, tzinfo=SH))
-    assert [x.strftime("%H:%M") for x in s] == ["21:37"]
+    s = hc.expected_slots(datetime(2026, 11, 9, 12, 30, tzinfo=SH), datetime(2026, 11, 9, 21, 0, tzinfo=SH))
+    assert [x.strftime("%H:%M") for x in s] == ["21:00"]
 
 
 def test_missed_slots_examples():
-    now = datetime(2026, 11, 10, 9, 8, tzinfo=SH)
-    assert hc.missed_slots("2026-11-09 09:10", now) == ["11-09 21:37"]
-    assert hc.missed_slots("2026-11-09 09:10", datetime(2026, 11, 9, 22, 50, tzinfo=SH)) == []
-    assert hc.missed_slots("2026-11-06 22:45", datetime(2026, 11, 9, 9, 8, tzinfo=SH)) == []
+    now = datetime(2026, 11, 10, 12, 31, tzinfo=SH)
+    assert hc.missed_slots("2026-11-09 12:35", now) == ["11-09 21:00"]
+    assert hc.missed_slots("2026-11-09 12:35", datetime(2026, 11, 9, 22, 50, tzinfo=SH)) == []
+    assert hc.missed_slots("2026-11-06 21:05", datetime(2026, 11, 9, 12, 31, tzinfo=SH)) == []
     assert hc.missed_slots(None, now) == []
 
 
 def test_missed_slots_grace_boundary():
-    # 21:37 + 3h = 00:37，恰好到点算漏
-    assert hc.missed_slots("2026-11-09 09:10", datetime(2026, 11, 10, 0, 37, tzinfo=SH)) == ["11-09 21:37"]
-    assert hc.missed_slots("2026-11-09 09:10", datetime(2026, 11, 10, 0, 36, tzinfo=SH)) == []
+    # 21:00 + 3h = 00:00，恰好到点算漏
+    assert hc.missed_slots("2026-11-09 12:35", datetime(2026, 11, 10, 0, 0, tzinfo=SH)) == ["11-09 21:00"]
+    assert hc.missed_slots("2026-11-09 12:35", datetime(2026, 11, 9, 23, 59, tzinfo=SH)) == []
+
+
+def test_gate_window():
+    d = lambda h, m: datetime(2026, 11, 10, h, m, tzinfo=SH)  # 周二
+    assert hc.gate("schedule", d(12, 20), "2026-11-09 21:05")[0] is True
+    assert hc.gate("schedule", d(14, 30), "2026-11-09 21:05")[0] is True
+    assert hc.gate("schedule", d(12, 19), "2026-11-09 21:05")[0] is False   # 还没到窗口
+    assert hc.gate("schedule", d(14, 31), "2026-11-09 21:05")[0] is False   # 过了窗口
+    assert hc.gate("schedule", d(20, 50), "2026-11-10 12:35")[0] is True
+    assert hc.gate("schedule", d(23, 30), "2026-11-10 12:35")[0] is True
+    assert hc.gate("schedule", d(5, 0), "2026-11-09 21:05")[0] is False     # 凌晨不跑
+
+
+def test_gate_already_built_and_weekend():
+    d = datetime(2026, 11, 10, 13, 0, tzinfo=SH)
+    assert hc.gate("schedule", d, "2026-11-10 12:25")[0] is False   # 本时段已跑过
+    assert hc.gate("schedule", d, "2026-11-10 12:19")[0] is True
+    assert hc.gate("schedule", d, None)[0] is True                  # 读不到线上页面也跑
+    assert hc.gate("schedule", d, "坏格式")[0] is True
+    sat = datetime(2026, 11, 14, 12, 40, tzinfo=SH)
+    assert hc.gate("schedule", sat, "2026-11-13 21:05")[0] is False
+    assert hc.gate("push", sat, "2026-11-13 21:05")[0] is True        # 推送和手动触发不看时间
+    assert hc.gate("workflow_dispatch", datetime(2026, 11, 10, 3, 0, tzinfo=SH), None)[0] is True
+
+
+def test_run_gate_writes_output(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(out))
+    page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-10 12:25"}}) + ';\n'
+    assert hc.run_gate("http://x/", "schedule", now=datetime(2026, 11, 10, 13, 0, tzinfo=SH),
+                       fetch=lambda u: page) == 0
+    assert "run=false" in out.read_text()
+    out.write_text("")
+    assert hc.run_gate("http://x/", "schedule", now=datetime(2026, 11, 10, 13, 0, tzinfo=SH),
+                       fetch=lambda u: 1 / 0) == 0
+    assert "run=true" in out.read_text()
 
 
 def test_summary_markdown():
     res = [{"level": "ok", "item": "A", "detail": "好"}, {"level": "warn", "item": "B", "detail": "慢"},
            {"level": "fail", "item": "C", "detail": "坏"}]
-    md = hc.summary_markdown(res, ["告警甲", "告警乙"], ["11-09 21:37"])
+    md = hc.summary_markdown(res, ["告警甲", "告警乙"], ["11-09 21:00"])
     assert "构建体检" in md and "✅" in md and "⚠️" in md and "❌" in md
-    assert "11-09 21:37" in md and "<details>" in md and "告警甲" in md
+    assert "11-09 21:00" in md and "<details>" in md and "告警甲" in md
     md2 = hc.summary_markdown(res[:1], [], [])
     assert "漏跑" not in md2 and "<details>" not in md2
 
@@ -129,11 +165,11 @@ def test_demo_page_passes(tmp_path, monkeypatch):
 
 
 def test_live_check_missed_and_unreadable():
-    now = datetime(2026, 11, 10, 9, 8, tzinfo=SH)
-    page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-09 09:10"}}) + ';\n'
+    now = datetime(2026, 11, 10, 12, 31, tzinfo=SH)
+    page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-09 12:35"}}) + ';\n'
     res = hc.live_check("http://x/", now=now, fetch=lambda url: page)
-    assert res[0]["level"] == "fail" and "漏跑或严重延迟：11-09 21:37" in res[0]["detail"]
-    page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-10 01:00"}}) + ';\n'
+    assert res[0]["level"] == "fail" and "漏跑或严重延迟：11-09 21:00" in res[0]["detail"]
+    page = 'const DATA = ' + json.dumps({"meta": {"generated_at": "2026-11-09 21:05"}}) + ';\n'
     assert hc.live_check("http://x/", now=now, fetch=lambda url: page) == []
 
     def boom(url):

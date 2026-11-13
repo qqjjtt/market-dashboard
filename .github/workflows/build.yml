@@ -2,11 +2,13 @@ name: build
 
 on:
   schedule:
-    # GitHub 繁忙时会跳过或延迟定时任务，整点和半点最拥挤，所以都避开；每个时段再补跑一次
-    - cron: "37 13 * * 1-5"  # 工作日 21:37 北京时间（主；筹码数据 20–21 点才更新，此时基本已出）
-    - cron: "43 14 * * 1-5"  # 工作日 22:43 北京时间（补跑：主被跳过时接上；两次都跑也只会覆盖同一天数据）
-    - cron: "7 1 * * 1-5"  # 工作日 09:07 北京时间（主：补上前一晚美国数据）
-    - cron: "13 2 * * 1-5"  # 工作日 10:13 北京时间（补跑）
+    # 每个工作日北京时间 12:30 和 21:00 各构建一次。GitHub 定时对本仓库实测会晚 6～7.5 小时，且时晚时不晚，
+    # 所以每个时段放一条「按时」的 cron 和几条「提前约 7 小时」的 cron；gate job 只让落进时段窗口
+    # （12:20–14:30、20:50–23:30）且本时段还没构建过的那一次往下跑，其余直接跳过（几秒结束）
+    - cron: "23 4 * * 1-5"  # 12:23 北京时间（12:30 时段，按时到达时用）
+    - cron: "37,7 21-22 * * 0-4"  # 05:07、05:37、06:07、06:37 北京时间（12:30 时段，晚到约 7 小时时用）
+    - cron: "53 12 * * 1-5"  # 20:53 北京时间（21:00 时段，按时到达时用）
+    - cron: "17,47 6-7 * * 1-5"  # 14:17、14:47、15:17、15:47 北京时间（21:00 时段，晚到约 7 小时时用）
   push:
     branches: [main]
     # 只改存档、日历存档、文档时不必重建。github-actions 用 GITHUB_TOKEN 推的存档提交按 GitHub 规则不会再触发构建，不会循环
@@ -27,7 +29,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: 定时闸门  # healthcheck.py 只用标准库；推送和手动触发直接放行
+        id: gate
+        run: python healthcheck.py --gate https://qqjjtt.github.io/market-dashboard/ --event "${{ github.event_name }}"
+
   build:
+    needs: gate
+    if: ${{ needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
