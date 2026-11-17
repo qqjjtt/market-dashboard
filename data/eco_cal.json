@@ -2285,6 +2285,18 @@
 "date": "20261125",
 "time": "21:30",
 "region": "us",
+"item": "us_claims",
+"label": "初请失业金人数",
+"period": null,
+"major": false,
+"value": null,
+"pre": null,
+"fore": null
+},
+{
+"date": "20261125",
+"time": "21:30",
+"region": "us",
 "item": "us_core_pce_mom",
 "label": "核心 PCE 月率 · 十月",
 "period": "十月",
