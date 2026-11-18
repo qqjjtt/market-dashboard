@@ -2366,6 +2366,42 @@
 "fore": null
 },
 {
+"date": "20261209",
+"time": "09:30",
+"region": "cn",
+"item": "cn_cpi_mom",
+"label": "CPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.0%",
+"fore": null
+},
+{
+"date": "20261209",
+"time": "09:30",
+"region": "cn",
+"item": "cn_cpi_yoy",
+"label": "CPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "0.7%",
+"fore": null
+},
+{
+"date": "20261209",
+"time": "09:30",
+"region": "cn",
+"item": "cn_ppi_yoy",
+"label": "PPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "5.7%",
+"fore": null
+},
+{
 "date": "20261210",
 "time": "03:00",
 "region": "us",
