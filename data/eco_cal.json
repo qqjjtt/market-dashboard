@@ -2117,18 +2117,6 @@
 "date": "20261110",
 "time": "21:30",
 "region": "us",
-"item": "us_core_cpi_yoy",
-"label": "核心 CPI 年率 · 十月",
-"period": "十月",
-"major": false,
-"value": null,
-"pre": "2.6%",
-"fore": "2.8%"
-},
-{
-"date": "20261110",
-"time": "21:30",
-"region": "us",
 "item": "us_cpi_mom",
 "label": "CPI 月率 · 十月",
 "period": "十月",
@@ -2136,18 +2124,6 @@
 "value": "0.4%",
 "pre": "0.6%",
 "fore": "0.3%"
-},
-{
-"date": "20261110",
-"time": "21:30",
-"region": "us",
-"item": "us_cpi_yoy",
-"label": "CPI 年率 · 十月",
-"period": "十月",
-"major": true,
-"value": null,
-"pre": "3.7%",
-"fore": "3.9%"
 },
 {
 "date": "20261112",
@@ -2265,9 +2241,9 @@
 "label": "初请失业金人数",
 "period": null,
 "major": false,
-"value": null,
-"pre": "200K",
-"fore": "199K"
+"value": "203K",
+"pre": "202K",
+"fore": "198K"
 },
 {
 "date": "20261120",
@@ -2435,6 +2411,54 @@
 "major": false,
 "value": null,
 "pre": null,
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_core_cpi_mom",
+"label": "核心 CPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.3%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_core_cpi_yoy",
+"label": "核心 CPI 年率 · 十月",
+"period": "十月",
+"major": false,
+"value": null,
+"pre": "2.6%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_cpi_mom",
+"label": "CPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.4%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_cpi_yoy",
+"label": "CPI 年率 · 十月",
+"period": "十月",
+"major": true,
+"value": null,
+"pre": "3.7%",
 "fore": null
 }
 ]
