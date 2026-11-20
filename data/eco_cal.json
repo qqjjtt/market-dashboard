@@ -2247,15 +2247,15 @@
 },
 {
 "date": "20261120",
-"time": "09:15",
+"time": "09:00",
 "region": "cn",
 "item": "cn_lpr",
-"label": "LPR",
-"period": null,
+"label": "LPR · 十一月",
+"period": "十一月",
 "major": true,
-"value": null,
-"pre": "3.00%",
-"fore": "3.00%"
+"value": "3.50%",
+"pre": "3.50%",
+"fore": "3.50%"
 },
 {
 "date": "20261125",
@@ -2266,7 +2266,7 @@
 "period": null,
 "major": false,
 "value": null,
-"pre": null,
+"pre": "203K",
 "fore": null
 },
 {
@@ -2279,7 +2279,7 @@
 "major": false,
 "value": null,
 "pre": "0.3%",
-"fore": null
+"fore": "0.3%"
 },
 {
 "date": "20261125",
