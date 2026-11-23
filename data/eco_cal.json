@@ -2117,6 +2117,18 @@
 "date": "20261110",
 "time": "21:30",
 "region": "us",
+"item": "us_core_cpi_yoy",
+"label": "核心 CPI 年率 · 十月",
+"period": "十月",
+"major": false,
+"value": null,
+"pre": "2.6%",
+"fore": "2.8%"
+},
+{
+"date": "20261110",
+"time": "21:30",
+"region": "us",
 "item": "us_cpi_mom",
 "label": "CPI 月率 · 十月",
 "period": "十月",
@@ -2124,6 +2136,18 @@
 "value": "0.4%",
 "pre": "0.6%",
 "fore": "0.3%"
+},
+{
+"date": "20261110",
+"time": "21:30",
+"region": "us",
+"item": "us_cpi_yoy",
+"label": "CPI 年率 · 十月",
+"period": "十月",
+"major": true,
+"value": null,
+"pre": "3.7%",
+"fore": "3.9%"
 },
 {
 "date": "20261112",
@@ -2267,7 +2291,7 @@
 "major": false,
 "value": null,
 "pre": "203K",
-"fore": null
+"fore": "201K"
 },
 {
 "date": "20261125",
@@ -2430,8 +2454,8 @@
 "time": "21:30",
 "region": "us",
 "item": "us_core_cpi_yoy",
-"label": "核心 CPI 年率 · 十月",
-"period": "十月",
+"label": "核心 CPI 年率 · 十一月",
+"period": "十一月",
 "major": false,
 "value": null,
 "pre": "2.6%",
@@ -2454,8 +2478,8 @@
 "time": "21:30",
 "region": "us",
 "item": "us_cpi_yoy",
-"label": "CPI 年率 · 十月",
-"period": "十月",
+"label": "CPI 年率 · 十一月",
+"period": "十一月",
 "major": true,
 "value": null,
 "pre": "3.7%",
