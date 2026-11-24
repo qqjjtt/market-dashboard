@@ -2484,6 +2484,30 @@
 "value": null,
 "pre": "3.7%",
 "fore": null
+},
+{
+"date": "20261215",
+"time": "10:00",
+"region": "cn",
+"item": "cn_ip",
+"label": "工业增加值年率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "4.8%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "10:00",
+"region": "cn",
+"item": "cn_retail",
+"label": "社零年率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.4%",
+"fore": null
 }
 ]
 }
