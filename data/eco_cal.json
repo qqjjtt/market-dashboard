@@ -2315,7 +2315,7 @@
 "major": false,
 "value": null,
 "pre": "3.6%",
-"fore": null
+"fore": "3.8%"
 },
 {
 "date": "20261130",
@@ -2339,6 +2339,18 @@
 "major": false,
 "value": null,
 "pre": "49.7",
+"fore": null
+},
+{
+"date": "20261203",
+"time": "21:30",
+"region": "us",
+"item": "us_claims",
+"label": "初请失业金人数",
+"period": null,
+"major": false,
+"value": null,
+"pre": null,
 "fore": null
 },
 {
@@ -2507,6 +2519,30 @@
 "major": false,
 "value": null,
 "pre": "0.4%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "21:30",
+"region": "us",
+"item": "us_ppi_mom",
+"label": "PPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.3%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "21:30",
+"region": "us",
+"item": "us_ppi_yoy",
+"label": "PPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "6.5%",
 "fore": null
 }
 ]
