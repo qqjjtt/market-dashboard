@@ -1985,18 +1985,6 @@
 "date": "20261029",
 "time": "20:30",
 "region": "us",
-"item": "us_gdp",
-"label": "实际 GDP 年化季率 · 第三季度",
-"period": "第三季度",
-"major": false,
-"value": "3.4%",
-"pre": "2.2%",
-"fore": "3.2%"
-},
-{
-"date": "20261029",
-"time": "20:30",
-"region": "us",
 "item": "us_pce_yoy",
 "label": "PCE 年率 · 九月",
 "period": "九月",
@@ -2289,8 +2277,8 @@
 "label": "初请失业金人数",
 "period": null,
 "major": false,
-"value": null,
-"pre": "203K",
+"value": "189K",
+"pre": "202K",
 "fore": "201K"
 },
 {
@@ -2301,9 +2289,21 @@
 "label": "核心 PCE 月率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
+"value": "0.3%",
 "pre": "0.3%",
 "fore": "0.3%"
+},
+{
+"date": "20261125",
+"time": "21:30",
+"region": "us",
+"item": "us_gdp",
+"label": "实际 GDP 年化季率 · 第三季度",
+"period": "第三季度",
+"major": false,
+"value": "4.3%",
+"pre": "2.2%",
+"fore": "3.4%"
 },
 {
 "date": "20261125",
@@ -2313,8 +2313,8 @@
 "label": "PCE 年率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
-"pre": "3.6%",
+"value": "3.8%",
+"pre": "3.7%",
 "fore": "3.8%"
 },
 {
