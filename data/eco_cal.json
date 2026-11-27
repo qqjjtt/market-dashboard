@@ -1985,18 +1985,6 @@
 "date": "20261029",
 "time": "20:30",
 "region": "us",
-"item": "us_gdp",
-"label": "实际 GDP 年化季率 · 第三季度",
-"period": "第三季度",
-"major": false,
-"value": "3.4%",
-"pre": "2.2%",
-"fore": "3.2%"
-},
-{
-"date": "20261029",
-"time": "20:30",
-"region": "us",
 "item": "us_pce_yoy",
 "label": "PCE 年率 · 九月",
 "period": "九月",
@@ -2205,8 +2193,8 @@
 "label": "PPI 月率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
-"pre": "1.3%",
+"value": "0.3%",
+"pre": "1.4%",
 "fore": "0.4%"
 },
 {
@@ -2217,7 +2205,7 @@
 "label": "PPI 年率 · 十月",
 "period": "十月",
 "major": true,
-"value": null,
+"value": "6.5%",
 "pre": "6.3%",
 "fore": "6.6%"
 },
@@ -2229,7 +2217,7 @@
 "label": "工业增加值年率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
+"value": "4.8%",
 "pre": "5.5%",
 "fore": "5.3%"
 },
@@ -2241,7 +2229,7 @@
 "label": "社零年率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
+"value": "0.4%",
 "pre": "1.1%",
 "fore": "0.8%"
 },
@@ -2265,21 +2253,33 @@
 "label": "初请失业金人数",
 "period": null,
 "major": false,
-"value": null,
-"pre": "200K",
-"fore": null
+"value": "203K",
+"pre": "202K",
+"fore": "198K"
 },
 {
 "date": "20261120",
-"time": "09:15",
+"time": "09:00",
 "region": "cn",
 "item": "cn_lpr",
-"label": "LPR",
-"period": null,
+"label": "LPR · 十一月",
+"period": "十一月",
 "major": true,
-"value": null,
-"pre": "3.00%",
-"fore": null
+"value": "3.50%",
+"pre": "3.50%",
+"fore": "3.50%"
+},
+{
+"date": "20261125",
+"time": "21:30",
+"region": "us",
+"item": "us_claims",
+"label": "初请失业金人数",
+"period": null,
+"major": false,
+"value": "189K",
+"pre": "202K",
+"fore": "201K"
 },
 {
 "date": "20261125",
@@ -2289,9 +2289,21 @@
 "label": "核心 PCE 月率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
+"value": "0.3%",
 "pre": "0.3%",
-"fore": null
+"fore": "0.3%"
+},
+{
+"date": "20261125",
+"time": "21:30",
+"region": "us",
+"item": "us_gdp",
+"label": "实际 GDP 年化季率 · 第三季度",
+"period": "第三季度",
+"major": false,
+"value": "4.3%",
+"pre": "2.2%",
+"fore": "3.4%"
 },
 {
 "date": "20261125",
@@ -2301,9 +2313,9 @@
 "label": "PCE 年率 · 十月",
 "period": "十月",
 "major": false,
-"value": null,
-"pre": "3.6%",
-"fore": null
+"value": "3.8%",
+"pre": "3.7%",
+"fore": "3.8%"
 },
 {
 "date": "20261130",
@@ -2327,6 +2339,78 @@
 "major": false,
 "value": null,
 "pre": "49.7",
+"fore": null
+},
+{
+"date": "20261203",
+"time": "21:30",
+"region": "us",
+"item": "us_claims",
+"label": "初请失业金人数",
+"period": null,
+"major": false,
+"value": null,
+"pre": "189K",
+"fore": null
+},
+{
+"date": "20261204",
+"time": "21:30",
+"region": "us",
+"item": "us_nfp",
+"label": "非农就业人数 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "165K",
+"fore": null
+},
+{
+"date": "20261204",
+"time": "21:30",
+"region": "us",
+"item": "us_unrate",
+"label": "失业率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "4.1%",
+"fore": null
+},
+{
+"date": "20261209",
+"time": "09:30",
+"region": "cn",
+"item": "cn_cpi_mom",
+"label": "CPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.0%",
+"fore": null
+},
+{
+"date": "20261209",
+"time": "09:30",
+"region": "cn",
+"item": "cn_cpi_yoy",
+"label": "CPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "0.7%",
+"fore": null
+},
+{
+"date": "20261209",
+"time": "09:30",
+"region": "cn",
+"item": "cn_ppi_yoy",
+"label": "PPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "5.7%",
 "fore": null
 },
 {
@@ -2363,6 +2447,102 @@
 "major": false,
 "value": null,
 "pre": null,
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_core_cpi_mom",
+"label": "核心 CPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.3%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_core_cpi_yoy",
+"label": "核心 CPI 年率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "2.6%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_cpi_mom",
+"label": "CPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.4%",
+"fore": null
+},
+{
+"date": "20261210",
+"time": "21:30",
+"region": "us",
+"item": "us_cpi_yoy",
+"label": "CPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "3.7%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "10:00",
+"region": "cn",
+"item": "cn_ip",
+"label": "工业增加值年率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "4.8%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "10:00",
+"region": "cn",
+"item": "cn_retail",
+"label": "社零年率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.4%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "21:30",
+"region": "us",
+"item": "us_ppi_mom",
+"label": "PPI 月率 · 十一月",
+"period": "十一月",
+"major": false,
+"value": null,
+"pre": "0.3%",
+"fore": null
+},
+{
+"date": "20261215",
+"time": "21:30",
+"region": "us",
+"item": "us_ppi_yoy",
+"label": "PPI 年率 · 十一月",
+"period": "十一月",
+"major": true,
+"value": null,
+"pre": "6.5%",
 "fore": null
 }
 ]
