@@ -2327,7 +2327,7 @@
 "major": false,
 "value": null,
 "pre": "49.3",
-"fore": null
+"fore": "49.5"
 },
 {
 "date": "20261130",
@@ -2363,7 +2363,7 @@
 "major": true,
 "value": null,
 "pre": "165K",
-"fore": null
+"fore": "90K"
 },
 {
 "date": "20261204",
@@ -2375,7 +2375,7 @@
 "major": false,
 "value": null,
 "pre": "4.1%",
-"fore": null
+"fore": "4.1%"
 },
 {
 "date": "20261209",
