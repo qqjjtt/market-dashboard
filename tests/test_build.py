@@ -42,7 +42,7 @@ def test_build_demo_end_to_end(tmp_path):
     assert set(data) >= {"meta", "conclusions", "indices", "liquidity", "policy_ops", "news", "sector_flow",
                          "etf_flow", "round", "monthly", "fingerprint", "temperature", "concentration"}
     assert data["meta"]["trade_date"] == DATE
-    assert data["meta"]["tail_source"] == "stk_mins·510300" and data["fingerprint"]["tail"]["today"] is not None
+    assert data["meta"]["tail_source"] == "东财·7只" and data["fingerprint"]["tail"]["today"] is not None
     assert data["meta"]["sector_mode"] in ("申万行业", "stock_basic.industry")
     assert len(data["indices"]) == 5
     assert "commodities" not in data
@@ -181,6 +181,12 @@ def test_build_no_minutes(tmp_path, monkeypatch):
 class CountingMinutes(DemoSource):
     calls = 0
 
+    def em_etf_minutes(self, code, start, end):
+        return None
+
+    def ths_etf_minutes(self, code, start, end):
+        return None
+
     def etf_minutes(self, code, start, end):
         type(self).calls += 1
         return None
@@ -195,13 +201,19 @@ def test_minutes_stops_after_first_none(tmp_path, monkeypatch):
 class RecordingMinutes(DemoSource):
     seen = []
 
+    def em_etf_minutes(self, code, start, end):
+        return None
+
+    def ths_etf_minutes(self, code, start, end):
+        return None
+
     def etf_minutes(self, code, start, end):
         type(self).seen.append((code, start, end))
         return super().etf_minutes(code, start, end)
 
 
 def test_tail_uses_single_representative_etf_one_call(tmp_path, monkeypatch):
-    """stk_mins 限额 1 次/小时：每次构建只调一次，代码取 config.TAIL_CODE，区间 yday→D。"""
+    """东财与同花顺均不可用时退回 stk_mins（限额 1 次/小时）：只调一次，代码取 config.TAIL_CODE，区间 yday→D。"""
     RecordingMinutes.seen = []
     _, data = run(tmp_path, RecordingMinutes(), monkeypatch=monkeypatch)
     assert len(RecordingMinutes.seen) == 1
@@ -209,6 +221,37 @@ def test_tail_uses_single_representative_etf_one_call(tmp_path, monkeypatch):
     assert code == "510300.SH" and end == DATE and start < end
     t = data["fingerprint"]["tail"]
     assert t["today"] is not None and t["source"] == "stk_mins·510300"
+
+
+class ThsFallbackMinutes(DemoSource):
+    em_seen = []
+    ths_seen = []
+
+    def em_etf_minutes(self, code, start, end):
+        type(self).em_seen.append(code)
+        return None
+
+    def ths_etf_minutes(self, code, start, end):
+        type(self).ths_seen.append(code)
+        # 同花顺 today.js 只返回 end 当天分时
+        return super().etf_minutes(code, end, end)
+
+
+def test_tail_prefers_em_then_falls_back_to_ths_with_history_yday(tmp_path, monkeypatch):
+    ThsFallbackMinutes.em_seen = []
+    ThsFallbackMinutes.ths_seen = []
+    db_dir = tmp_path / "db"
+    db_dir.mkdir()
+    (db_dir / "daily.csv").write_text("trade_date,key,value\n20261105,fingerprint.tail.today,19.25\n", encoding="utf-8")
+    monkeypatch.setattr(build, "_make_sources", lambda demo: (ThsFallbackMinutes(), DemoFred()))
+    out = tmp_path / "i.html"
+    eco = tmp_path / "eco.json"
+    assert main(["--out", str(out), "--date", DATE, "--db", str(db_dir), "--eco-cal", str(eco)]) == 0
+    data = json.loads(extract_data_json(out.read_text(encoding="utf-8")))
+    assert ThsFallbackMinutes.em_seen == config.HUIJIN_ETF
+    assert ThsFallbackMinutes.ths_seen == config.HUIJIN_ETF
+    t = data["fingerprint"]["tail"]
+    assert t["source"] == "同花顺·7只" and t["today"] is not None and t["yday"] == pytest.approx(19.25)
 
 
 class BrokenSource(DemoSource):

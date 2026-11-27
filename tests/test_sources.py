@@ -714,3 +714,34 @@ def test_cn_cpi_ppi_columns():
     assert list(src.cn_ppi("202601", "202610").columns) == ["month", "ppi_yoy"]
     assert pro.calls[0][1]["fields"] == "month,nt_yoy" and pro.calls[1][1]["fields"] == "month,ppi_yoy"
     assert pro.calls[0][1]["start_m"] == "202601"
+
+
+def test_em_and_ths_etf_minutes_parsing_and_retry():
+    import json
+    calls = []
+
+    def fake_http(url, referer=None):
+        calls.append((url, referer))
+        if "eastmoney" in url:
+            if len(calls) == 1:
+                raise ConnectionError("transient disconnect")
+            return json.dumps({"data": {"trends": [
+                "2026-11-04 09:30,100.0",
+                "2026-11-05 14:31,250.5",
+                "2026-11-06 09:31,999.0",
+            ]}})
+        return 'quotebridge_v4_time_hs_159919_today({"hs_159919":{"date":"20261105","data":"0930,4.14,1000,4.14,200;1435,4.15,3000,4.14,600"}})'
+
+    src, slept = make(FakePro(), http_get=fake_http)
+    em_df = src.em_etf_minutes("510300.SH", "20261104", "20261105")
+    assert slept == [pytest.approx(0.3)]
+    assert "secid=1.510300" in calls[0][0]
+    assert list(em_df["trade_time"]) == ["2026-11-04 09:30:00", "2026-11-05 14:31:00"]
+    assert list(em_df["amount"]) == [100.0, 250.5]
+
+    ths_df = src.ths_etf_minutes("159919.SZ", "20261104", "20261105")
+    assert "hs_159919/today.js" in calls[-1][0]
+    assert list(ths_df["trade_time"]) == ["2026-11-05 09:30:00", "2026-11-05 14:35:00"]
+    assert list(ths_df["amount"]) == [1000.0, 3000.0]
+    # 日期不在请求区间内 → None
+    assert src.ths_etf_minutes("159919.SZ", "20261101", "20261104") is None

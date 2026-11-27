@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import os
 import sys
 from dataclasses import dataclass, field
@@ -28,6 +29,7 @@ import metrics_liquidity as ml
 import metrics_sentiment as ms
 import metrics_value as mvl
 import store
+from intraday_archive import archive_intraday, publish_intraday
 from render import archive_json, render
 from summary import build_conclusions, signed
 
@@ -1021,12 +1023,88 @@ def _wide(frames: dict, col: str, index: list[str]) -> pd.DataFrame:
     return pd.DataFrame(data).reindex(index).astype(float)
 
 
+def _hist_tail_ratio(db_dir: str | None, day: str | None) -> float | None:
+    """从历史库 daily.csv 读某日已存档的 fingerprint.tail.today（同花顺单日接口缺昨日数据时的备用）。"""
+    if not db_dir or not day:
+        return None
+    df = store.load_csv(Path(db_dir) / store.DAILY_FILE, store.DAILY_COLS)
+    if df.empty:
+        return None
+    sub = df[(df["trade_date"] == day) & (df["key"] == "fingerprint.tail.today")]["value"].dropna()
+    return _num(sub.iloc[-1]) if len(sub) else None
+
+
+def _pool_minutes(fn, codes: list[str], start: str, end: str, label: str) -> list[tuple[str, pd.DataFrame]]:
+    """拉取一组 ETF 的分钟线；返回 [(code, df), ...]。"""
+    frames = []
+    for code in codes:
+        try:
+            df = fn(code, start, end)
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s分钟线 %s 获取失败（%s: %s）", label, code, type(e).__name__, _short(e))
+            df = None
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            frames.append((code, df))
+    return frames
+
+
+def _fill_tail_days(res: dict, frames: list[tuple[str, pd.DataFrame]], D: str, yday: str | None,
+                    need: int, label: str, warn_missing: bool = True) -> int:
+    """按日筛选有效只数 ≥ need 的日期并计算合并尾盘占比；返回成功覆盖的最大只数（0 表示两日均不足）。"""
+    best_n = 0
+    for key, day in (("today", D), ("yday", yday)):
+        if not day or res[key] is not None:
+            continue
+        prefix = f"{day[:4]}-{day[4:6]}-{day[6:]}"
+        subs = []
+        for _code, df in frames:
+            sub = df[df["trade_time"].astype(str).str[:10] == prefix] if len(df) else df
+            if len(sub):
+                subs.append(sub)
+        if len(subs) < need:
+            if warn_missing:
+                log.warning("%s分钟线 %s 有效只数不足（%d/%d 只），该日尾盘占比留空",
+                            label, _md(day), len(subs), len(frames))
+            continue
+        v = me.tail_ratio(pd.concat(subs, ignore_index=True), config.TAIL_START)
+        if v is not None:
+            res[key] = v
+            best_n = max(best_n, len(subs))
+    return best_n
+
+
 def _tail_ratios(c: Ctx, yday: str | None):
-    """尾盘占比：stk_mins 账号限额 1 次/小时，所以只用一只代表 ETF（config.TAIL_CODE）、一次 etf_minutes(yday→D)。
-    返回 None（无权限/限频）→ 「无分钟数据」。"""
+    """尾盘占比：优先取东方财富 1 分钟分时（汇金 7 只合并），失败退回同花顺当日分时（昨日读历史库），
+    最后兜底 tushare stk_mins（账号限额 1 次/小时，只用 config.TAIL_CODE 一只）。全部无数据 → 「无分钟数据」。"""
     D = c.D
-    code = config.TAIL_CODE
+    pool = list(config.HUIJIN_ETF)
     res = {"today": None, "yday": None, "source": "无分钟数据"}
+    need = int(math.ceil(len(pool) * config.DISCLOSURE_MIN))
+
+    # 1. 东方财富（主源：近 5 日 1 分钟分时，7 只 ETF 合并）
+    em_fn = getattr(c.src, "em_etf_minutes", None)
+    if callable(em_fn):
+        em_frames = _pool_minutes(em_fn, pool, yday or D, D, "东财")
+        n_em = _fill_tail_days(res, em_frames, D, yday, need, "东财") if len(em_frames) >= need else 0
+        if n_em:
+            res["source"] = f"东财·{n_em}只"
+            return res
+        log.warning("东财分钟线不足（%d/%d 只），尝试同花顺备用源", len(em_frames), len(pool))
+
+    # 2. 同花顺（备用源：当日 1 分钟分时，7 只 ETF 合并；昨日从历史库回填）
+    ths_fn = getattr(c.src, "ths_etf_minutes", None)
+    if callable(ths_fn):
+        ths_frames = _pool_minutes(ths_fn, pool, yday or D, D, "同花顺")
+        n_ths = _fill_tail_days(res, ths_frames, D, yday, need, "同花顺", warn_missing=False) if len(ths_frames) >= need else 0
+        if n_ths:
+            if res["yday"] is None and yday:
+                res["yday"] = _hist_tail_ratio(c.db_dir, yday)
+            res["source"] = f"同花顺·{n_ths}只"
+            return res
+        log.warning("同花顺分钟线不足（%d/%d 只），退回 tushare stk_mins", len(ths_frames), len(pool))
+
+    # 3. tushare stk_mins 兜底（限额 1 次/小时，只查单只代表 ETF）
+    code = config.TAIL_CODE
     try:
         df = c.src.etf_minutes(code, yday or D, D)
     except Exception as e:  # noqa: BLE001
@@ -1035,16 +1113,7 @@ def _tail_ratios(c: Ctx, yday: str | None):
     if df is None:
         log.warning("分钟线 %s 无权限或频率受限（stk_mins 账号限额 1 次/小时），尾盘占比留空", code)
         return res
-    for key, day in (("today", D), ("yday", yday)):
-        if not day:
-            continue
-        prefix = f"{day[:4]}-{day[4:6]}-{day[6:]}"
-        sub = df[df["trade_time"].astype(str).str[:10] == prefix] if len(df) else df
-        if len(sub) == 0:
-            log.warning("分钟线 %s 缺 %s 数据，该日尾盘占比留空", code, _md(day))
-            continue
-        res[key] = me.tail_ratio(sub, config.TAIL_START)
-    if res["today"] is not None or res["yday"] is not None:
+    if _fill_tail_days(res, [(code, df)], D, yday, 1, code):
         res["source"] = f"stk_mins·{code.split('.')[0]}"
     return res
 
@@ -1311,6 +1380,8 @@ def _collect(src, fred, date, round_start, demo, now, eco_path=None, db_dir=None
     indices = _safe("指数", lambda: _indices(c), list)
     assets = _safe("大类资产", lambda: _assets(c), list)
     policy = _safe("政策工具表", lambda: ml.load_policy_ops(str(POLICY_CSV)), list)
+    intraday_fn = getattr(src, "intraday_board", None)
+    intraday = _safe("盘中分时看板", lambda: intraday_fn(D) if callable(intraday_fn) else None, lambda: None)
 
     fed_card = next((x for x in liquidity["external"] if x["key"] == "fed_net"), {})
     conclusions = _safe("结论条", lambda: build_conclusions(
@@ -1342,6 +1413,7 @@ def _collect(src, fred, date, round_start, demo, now, eco_path=None, db_dir=None
         "temperature": sent["temperature"],
         "concentration": sent["concentration"],
         "valuation": valuation,
+        "intraday": intraday,
     }
 
 
@@ -1408,7 +1480,8 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    date = resolve_date(args.date)
+    now = datetime.now(SH)
+    date = resolve_date(args.date, now)
     try:
         src, fred = _make_sources(args.demo)
     except Exception as e:  # noqa: BLE001
@@ -1423,10 +1496,22 @@ def main(argv: list[str] | None = None) -> int:
         log.error("整体取数失败，不生成页面（保留上一份）：%s", _scrub(str(e)))
         return 3
     payload["meta"]["code_version"] = (os.environ.get("GITHUB_SHA") or "")[:7] or None
-    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    os.makedirs(out_dir, exist_ok=True)
     render(str(TEMPLATE), payload, args.out)
+    intraday_tpl = Path(__file__).resolve().parent / "intraday_template.html"
+    if intraday_tpl.is_file() and payload.get("intraday"):
+        try:
+            render(str(intraday_tpl), payload["intraday"], os.path.join(out_dir, "intraday.html"),
+                   placeholder="/*__INTRADAY_DATA__*/null")
+        except Exception as e:  # noqa: BLE001
+            log.warning("独立盘中分时看板写出失败（%s: %s）", type(e).__name__, _short(e))
     if args.archive and not args.demo:
         log.info("已存档 %s", archive(payload, args.archive))
+        intraday_path = archive_intraday(payload, args.archive, requested_date=date, now=now)
+        if intraday_path:
+            log.info("已存档分时图 %s", intraday_path)
+        publish_intraday(args.archive, out_dir)
     _write_db(args, payload, extras)
     ws = payload["meta"]["warnings"]
     log.info("已生成 %s（交易日 %s，demo=%s，%d 条警告）", args.out, payload["meta"]["trade_date"], args.demo, len(ws))

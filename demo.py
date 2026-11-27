@@ -259,6 +259,16 @@ class DemoSource:
             amounts += list(base * shape * noise)
         return pd.DataFrame({"trade_time": times, "amount": np.round(amounts, 2)})
 
+    def em_etf_minutes(self, code, start, end):
+        return self.etf_minutes(code, start, end)
+
+    def ths_etf_minutes(self, code, start, end):
+        return self.etf_minutes(code, start, end)
+
+    def intraday_board(self, trade_date):
+        import intraday_tracker as it
+        return it.build_demo_intraday_payload(trade_date)
+
     # ------------------------------------------------------------ 资金与情绪
 
     def sector_flow(self, start, end):

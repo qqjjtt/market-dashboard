@@ -6,9 +6,11 @@
 - ``trade_date`` 列一律为 str(YYYYMMDD)。
 - token 只从环境变量 TUSHARE_TOKEN 读取，不打印、不记录、不落盘。
 """
+import json
 import logging
 import os
 import time
+import urllib.request
 from collections import deque
 from datetime import datetime, timedelta
 
@@ -19,8 +21,130 @@ import config
 log = logging.getLogger(__name__)
 
 _RETRY_WAITS = (2, 4, 8)  # 共 4 次尝试，失败后依次等待
+_HTTP_RETRY_WAITS = (0.3, 0.8)  # 东财 / 同花顺轻量重试
+_HTTP_TIMEOUT = 15
+_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/124 Safari/537.36")
+_EM_TRENDS_URLS = (
+    "https://push2his.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3&fields2=f51,f57&ndays=5&iscr=0",
+    "https://push2.eastmoney.com/api/qt/stock/trends2/get?secid={secid}&fields1=f1,f2,f3&fields2=f51,f57&ndays=5&iscr=0",
+)
+_THS_TODAY_URLS = (
+    "https://d.10jqka.com.cn/v4/time/hs_{num}/today.js",
+    "https://d.10jqka.com.cn/v6/time/hs_{num}/last.js",
+)
 _NEWS_FMT = "%Y-%m-%d %H:%M:%S"
 _NEWS_PAGE_LIMIT = 800  # major_news 单次最多 800 行
+
+
+def _http_get(url, referer=None):
+    headers = {"User-Agent": _UA}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as r:
+        return r.read().decode("utf-8", errors="replace")
+
+
+def _secid(code):
+    """510300.SH → 1.510300；159919.SZ → 0.159919。"""
+    parts = str(code).split(".")
+    num = parts[0]
+    ex = parts[1].upper() if len(parts) > 1 else ("SH" if num.startswith(("5", "6")) else "SZ")
+    return f"{1 if ex == 'SH' else 0}.{num}"
+
+
+def fetch_em_minutes(code, start, end, http_get=_http_get, sleep=time.sleep):
+    """东方财富近 5 日 1 分钟分时（trends2/get，push2his 主、push2 备）。
+    返回列 [trade_time, amount] 升序（amount 单位：元），仅保留 [start, end]（YYYYMMDD）内的数据；
+    失败或区间内无数据 → None。"""
+    s_dash = f"{start[:4]}-{start[4:6]}-{start[6:]}"
+    e_dash = f"{end[:4]}-{end[4:6]}-{end[6:]}"
+    secid = _secid(code)
+    txt = None
+    for i in range(len(_HTTP_RETRY_WAITS) + 1):
+        url = _EM_TRENDS_URLS[min(i, len(_EM_TRENDS_URLS) - 1)].format(secid=secid)
+        try:
+            txt = http_get(url, referer="https://quote.eastmoney.com/")
+            if txt:
+                break
+        except Exception:  # noqa: BLE001
+            if i < len(_HTTP_RETRY_WAITS):
+                sleep(_HTTP_RETRY_WAITS[i])
+    if not txt:
+        return None
+    try:
+        trends = ((json.loads(txt).get("data") or {}).get("trends")) or []
+    except Exception:  # noqa: BLE001
+        return None
+    times, amounts = [], []
+    for row in trends:
+        parts = str(row).split(",")
+        if len(parts) < 2:
+            continue
+        t = parts[0].strip()
+        day = t[:10]
+        if not (s_dash <= day <= e_dash):
+            continue
+        try:
+            amt = float(parts[1])
+        except ValueError:
+            continue
+        if len(t) == 16:
+            t = f"{t}:00"
+        times.append(t)
+        amounts.append(amt)
+    if not times:
+        return None
+    df = pd.DataFrame({"trade_time": times, "amount": amounts})
+    return df.sort_values("trade_time", kind="stable").reset_index(drop=True)
+
+
+def fetch_ths_minutes(code, start, end, http_get=_http_get, sleep=time.sleep):
+    """同花顺当日 1 分钟分时（v4/today.js 主、v6/last.js 备）。
+    返回列 [trade_time, amount] 升序（amount 单位：元），仅当返回日期在 [start, end]（YYYYMMDD）内时有效；
+    失败或日期不匹配 → None。"""
+    num = str(code).split(".")[0]
+    txt = None
+    for i in range(len(_HTTP_RETRY_WAITS) + 1):
+        url = _THS_TODAY_URLS[min(i, len(_THS_TODAY_URLS) - 1)].format(num=num)
+        try:
+            txt = http_get(url, referer="https://stockpage.10jqka.com.cn/")
+            if txt and "(" in txt and ")" in txt:
+                break
+        except Exception:  # noqa: BLE001
+            if i < len(_HTTP_RETRY_WAITS):
+                sleep(_HTTP_RETRY_WAITS[i])
+    if not txt or "(" not in txt or ")" not in txt:
+        return None
+    try:
+        payload = json.loads(txt[txt.index("(") + 1:txt.rindex(")")])
+        node = payload.get(f"hs_{num}") or next(iter(payload.values()), {})
+    except Exception:  # noqa: BLE001
+        return None
+    date = str(node.get("date") or "")
+    raw = str(node.get("data") or "")
+    if len(date) != 8 or not (start <= date <= end) or not raw:
+        return None
+    ds = f"{date[:4]}-{date[4:6]}-{date[6:]}"
+    times, amounts = [], []
+    for item in raw.split(";"):
+        parts = item.split(",")
+        if len(parts) < 3:
+            continue
+        hm = parts[0].strip()
+        if len(hm) != 4 or not hm.isdigit():
+            continue
+        try:
+            amt = float(parts[2])
+        except ValueError:
+            continue
+        times.append(f"{ds} {hm[:2]}:{hm[2:]}:00")
+        amounts.append(amt)
+    if not times:
+        return None
+    df = pd.DataFrame({"trade_time": times, "amount": amounts})
+    return df.sort_values("trade_time", kind="stable").reset_index(drop=True)
 
 
 class PermissionDenied(Exception):
@@ -45,7 +169,7 @@ def _empty(cols):
 
 class TushareSource:
     def __init__(self, pro, sleep=time.sleep, clock=time.monotonic,
-                 max_calls_per_min=config.MAX_CALLS_PER_MIN, api_min_interval=None):
+                 max_calls_per_min=config.MAX_CALLS_PER_MIN, api_min_interval=None, http_get=_http_get):
         self.pro = pro
         self._min_interval = config.API_MIN_INTERVAL if api_min_interval is None else api_min_interval
         self._last_call = {}  # api -> 上次调用时刻
@@ -54,6 +178,7 @@ class TushareSource:
         self._max_calls = max_calls_per_min
         self._times = deque()  # 最近 60 秒内的调用时刻
         self._news_cov = {"status": "failed", "since": None}  # 尚未调用过 major_news
+        self._http_get = http_get
 
     @classmethod
     def from_env(cls):
@@ -269,7 +394,7 @@ class TushareSource:
                            start_date=start, end_date=end)
 
     def etf_minutes(self, code, start, end):
-        """ETF 1 分钟线，一次 stk_mins 调用覆盖 start 09:30:00 至 end 15:00:00（start/end 为 YYYYMMDD，含两端）。
+        """ETF 1 分钟线（tushare stk_mins），一次调用覆盖 start 09:30:00 至 end 15:00:00（start/end 为 YYYYMMDD，含两端）。
         列 [trade_time, amount]，升序；amount 保持 tushare 原值。
         无权限或频率超限（stk_mins 账号限额 1 次/分钟，且不重试）→ None（频率超限记 WARNING）。"""
         fmt = lambda d: f"{d[:4]}-{d[4:6]}-{d[6:]}"  # noqa: E731
@@ -281,6 +406,19 @@ class TushareSource:
         except RateLimited:
             log.warning("etf_minutes(%s) 频率超限，返回 None", code)
             return None
+
+    def em_etf_minutes(self, code, start, end):
+        """东方财富近 5 日 1 分钟分时（主源）。返回列 [trade_time, amount] 升序；失败或无数据 → None。"""
+        return fetch_em_minutes(code, start, end, http_get=self._http_get, sleep=self._sleep)
+
+    def ths_etf_minutes(self, code, start, end):
+        """同花顺当日 1 分钟分时（备用源）。返回列 [trade_time, amount] 升序；失败或无数据 → None。"""
+        return fetch_ths_minutes(code, start, end, http_get=self._http_get, sleep=self._sleep)
+
+    def intraday_board(self, trade_date):
+        """盘中板块 ETF 与强势股分时强弱看板数据（东财主 / 同花顺备 / 腾讯兜底）。"""
+        import intraday_tracker as it
+        return it.collect_intraday_payload(http_get=self._http_get)
 
     # ------------------------------------------------------------ 资金与情绪
 

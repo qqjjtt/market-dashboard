@@ -24,7 +24,7 @@ DAILY_FILE = "daily.csv"
 MATRIX_FILE = "sector_flow.json"
 
 _STR_COLS = {"trade_date", "industry", "key"}
-_SKIP_TOP = {"meta", "conclusions", "calendar", "eco_calendar", "news", "policy_ops", "sector_flow"}
+_SKIP_TOP = {"meta", "conclusions", "calendar", "eco_calendar", "news", "policy_ops", "sector_flow", "intraday"}
 _ID_FIELDS = ("key", "code", "name", "label")
 
 

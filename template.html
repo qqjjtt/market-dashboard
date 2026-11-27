@@ -433,6 +433,41 @@
     .ecal .ecal-day .n { width: 30px; height: 30px; font-size: 15px; }
     .ecal .ecal-legend { padding: 10px 4px 0; }
   }
+  /* intraday tab (unified editorial light theme) */
+  .id-hero { margin-top: 16px; display: grid; grid-template-columns: 1fr 310px; gap: 16px; align-items: stretch; }
+  @media (max-width: 900px) { .id-hero { grid-template-columns: 1fr; } }
+  .id-hero-left { display: flex; flex-direction: column; justify-content: space-between; gap: 10px; }
+  .id-vol-box { background: var(--surface); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; }
+  .id-vol-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .id-vol-head b { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .id-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; }
+  .id-action { font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--hair); border-radius: 6px; padding: 4px 11px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+  .id-action:hover { background: var(--surface); }
+  .id-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+  .id-chip { font: inherit; font-size: 12.5px; color: var(--warm); background: color-mix(in oklab, var(--warm) 10%, #fff); border: 1px solid color-mix(in oklab, var(--warm) 30%, #fff); border-radius: 999px; padding: 2px 10px; cursor: pointer; font-weight: 550; }
+  .id-chip:hover { background: color-mix(in oklab, var(--warm) 16%, #fff); }
+  .id-table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  .id-table th { text-align: right; color: var(--muted); font-weight: 500; font-size: 12.5px; padding: 6px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+  .id-table td { padding: 8px 8px; border-bottom: 1px solid var(--hair); text-align: right; white-space: nowrap; vertical-align: middle; }
+  .id-table th:first-child, .id-table td:first-child { text-align: left; }
+  .id-table tr:last-child td { border-bottom: 0; }
+  .id-table tbody tr { cursor: pointer; }
+  .id-table tbody tr:hover { background: var(--surface); }
+  .id-table tbody tr.on { background: color-mix(in oklab, var(--cold) 10%, #fff); }
+  .id-code { color: var(--muted); font-size: 12px; margin-left: 5px; font-weight: 400; }
+  .id-stack { display: grid; gap: 14px; }
+  .id-stack .card, .detail-grid .card { min-width: 0; }
+  .id-fit, table.dk-table { table-layout: fixed; }
+  .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { white-space: normal; overflow-wrap: anywhere; }
+  #sub-summary { font-size: 13px; font-weight: 650; }
+  .history-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+  .history-controls select { margin-left: 4px; padding: 4px 8px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--hair); border-radius: 6px; }
+  @media (max-width: 600px) {
+    .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { font-size: 11px; padding: 6px 2px; }
+    .id-fit th:first-child, table.dk-table th:first-child { width: 24%; }
+    .id-code, .code-sub { display: block; margin-left: 0; font-size: 10px; }
+    .kbar-svg { max-width: 100%; }
+  }
 </style>
 </head>
 <body>
@@ -447,6 +482,7 @@
   <section class="page" id="p-home"></section>
   <section class="page" id="p-liquidity"></section>
   <section class="page" id="p-sector"></section>
+  <section class="page" id="p-intraday"></section>
   <section class="page" id="p-team"></section>
   <section class="page" id="p-retail"></section>
   <section class="page" id="p-value"></section>
@@ -1819,8 +1855,9 @@ function fingerprintCard(body) {
     vl.appendChild(document.createTextNode("（" + (isNum(g.chg_pct) ? fmtSigned(g.chg_pct, 0) + "%" : DASH) + "）"));
     add(li, nm, vl); ul.appendChild(li);
   });
-  var T = F.tail || {}, li = el("li"), nm = el("span", "nm", "尾盘占比（510300 代表）");
-  nm.appendChild(el("small", null, "代表 ETF：510300"));
+  var T = F.tail || {}, isSingle = String(T.source || "").indexOf("stk_mins") === 0;
+  var li = el("li"), nm = el("span", "nm", isSingle ? "尾盘占比（510300 代表）" : "尾盘占比（汇金 7 只）");
+  nm.appendChild(el("small", null, isSingle ? "代表 ETF：510300" : "14:30 后成交额占比"));
   var vl = el("span", "vl");
   if ((!isNum(T.today) && !isNum(T.yday)) || T.source === "无分钟数据") { vl.className = "vl muted"; vl.textContent = "无分钟数据"; }
   else {
@@ -2484,6 +2521,345 @@ function renderCalendar(p) {
   show(cur);
 }
 
+/* ================= intraday (sector ETFs & leaders, unified editorial style) ================= */
+function wireIntradayHistory(box, show) {
+  var select = box.querySelector("select"), status = box.querySelector('[role="status"]'), version = 0;
+  async function read(path) {
+    var r = await fetch("history/intraday/" + path, {cache: "no-store"});
+    if (!r.ok) throw new Error("history unavailable");
+    return r.json();
+  }
+  read("manifest.json").then(function (index) {
+    (index.dates || []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse().forEach(function (day) {
+      select.add(new Option(day, day));
+    });
+    if (select.options.length === 1) status.textContent = "暂无盘后存档";
+  }).catch(function () { status.textContent = "暂无可读取的盘后存档"; });
+  select.addEventListener("change", async function () {
+    var day = select.value, ticket = ++version;
+    if (!day) { show(null, ""); status.textContent = ""; return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+    status.textContent = "正在打开 " + day;
+    try {
+      var snapshot = await read(day + ".json");
+      if (!Array.isArray(snapshot.sectors)) throw new Error("invalid snapshot");
+      if (ticket !== version) return;
+      show(snapshot, day); status.textContent = "盘后存档 · " + day;
+    } catch (e) {
+      if (ticket !== version) return;
+      select.value = ""; show(null, ""); status.textContent = "读取失败，已返回实时行情";
+    }
+  });
+}
+
+function renderIntraday(p) {
+  var ID = DATA.intraday || {};
+  var st = {
+    data: ID,
+    metric: "flow",
+    pins: ["515790.SH", "159755.SZ", "512800.SH", "512880.SH", "512690.SH", "515070.SH"],
+    sel: null,
+    boxes: []
+  };
+
+  // 1. 顶部 Hero 卡片（与其它标签页 heroBand 统一风格，右侧嵌预测量能 vs 昨日小图）
+  var hero = el("div", "card id-hero"), heroLeft = el("div", "id-hero-left"), volBox = el("div", "id-vol-box");
+  var heroTop = el("div"), heroBadge = badge("盘中强弱", "red"), heroVerdict = el("div", "big"), heroSub = el("div", "sub");
+  heroVerdict.style.fontSize = "13px"; heroVerdict.style.fontWeight = "650"; heroVerdict.style.marginTop = "6px";
+  heroSub.style.color = "var(--muted)"; heroSub.style.fontSize = "13.5px"; heroSub.style.marginTop = "4px";
+  add(heroTop, heroBadge, heroVerdict, heroSub);
+  heroLeft.appendChild(heroTop);
+
+  var vHead = el("div", "id-vol-head"), vTitle = el("span", null, "预测量能 vs 昨日"), vVal = el("b", null, DASH);
+  add(vHead, vTitle, vVal);
+  var vCanvas = el("canvas");
+  vCanvas.style.width = "100%"; vCanvas.style.height = "84px"; vCanvas.style.display = "block";
+  add(volBox, vHead, vCanvas);
+  add(hero, heroLeft, volBox);
+  p.appendChild(hero);
+
+  // 2. 分段控制器与标题栏（使用原看板标准的 secTitle + makeSegmented）
+  secTitle(p, "板块资金流向与 ETF 强弱 · 分时曲线", "24 只核心行业 ETF 与强势股 · 09:30—15:00 每分钟更新");
+
+  var ctl = el("div", "id-ctl");
+  var metricSeg = makeSegmented([
+    { key: "flow", label: "估算净额（亿）" },
+    { key: "pct", label: "分时涨跌幅（%）" },
+    { key: "amt", label: "累计成交（亿）" }
+  ], st.metric, function (k) { st.metric = k; drawAll(); });
+
+  var btnRefresh = el("button", "id-action", "立即刷新行情");
+  btnRefresh.type = "button";
+  var standaloneLink = el("a", "id-action", "独立全屏页 ↗");
+  standaloneLink.href = "intraday.html";
+  add(ctl, metricSeg, btnRefresh, standaloneLink);
+  p.appendChild(ctl);
+  var liveData = st.data, replaying = false;
+  var historyBox = el("div", "history-controls");
+  historyBox.innerHTML = '<label>历史回放 <select aria-label="交易日"><option value="">实时行情</option></select></label><span role="status"></span>';
+  p.appendChild(historyBox);
+  wireIntradayHistory(historyBox, function (snapshot, day) {
+    replaying = Boolean(day);
+    btnRefresh.disabled = replaying;
+    st.data = snapshot || liveData;
+    drawAll();
+  });
+
+  var chipBar = el("div", "id-chips");
+  p.appendChild(chipBar);
+
+  // 3. 主分时赛马图卡片（白底 + --hair 边框 + 原看板配色）
+  var raceCard = el("div", "card chart-card"), raceCanvas = el("canvas");
+  raceCanvas.style.width = "100%"; raceCanvas.style.height = "520px"; raceCanvas.style.display = "block"; raceCanvas.style.cursor = "pointer";
+  var statusFoot = el("p", "note-foot", "说明：点击右侧放射板块标签或下方表格行，可穿透查看该行业 ETF 大市值候选股的分时走势与日 K。暖橙色为自定义监控板块。");
+  add(raceCard, raceCanvas, statusFoot);
+  p.appendChild(raceCard);
+
+  // 4. 下方双栏明细卡片（标准 .two-col + .card）
+  secTitle(p, "大市值个股与行业 ETF 日 K 排行", "个股从配置的候选池按总市值优先选取，不等同于基金最新持仓权重；点 ★ 加入监控");
+  var detGrid = el("div", "id-stack"), leftCard = el("div", "card"), rightCard = el("div", "card");
+  detGrid.style.marginTop = "0";
+  var stTitle = el("h3", null, "大市值个股分时与日 K"), stSub = el("p", "sub-line", "");
+  var stCanvas = el("canvas");
+  stCanvas.style.width = "100%"; stCanvas.style.height = "210px"; stCanvas.style.display = "block"; stCanvas.style.marginBottom = "10px";
+  var stTable = el("table", "id-table id-fit"), stThead = el("thead"), stTbody = el("tbody");
+  var stTr = el("tr");
+  ["标的", "现价", "日内涨跌", "开 / 高 / 低", "成交额", "总市值"].forEach(function (h) { stTr.appendChild(el("th", null, h)); });
+  stThead.appendChild(stTr); add(stTable, stThead, stTbody);
+  add(leftCard, stTitle, stSub, stCanvas, stTable);
+
+  var etfTitle = el("h3", null, "全部行业 ETF 实时日 K 排行"), etfSub = el("p", "sub-line", "点击行切换左侧强势股穿透 · 点 ★ 加入自定义监控");
+  var etfWrap = el("div");
+  var etfTable = el("table", "id-table id-fit"), etfThead = el("thead"), etfTbody = el("tbody");
+  var etfTr = el("tr");
+  ["板块 ETF", "现价", "涨跌幅", "净流入", "成交额", "代表个股"].forEach(function (h) { etfTr.appendChild(el("th", null, h)); });
+  etfThead.appendChild(etfTr); add(etfTable, etfThead, etfTbody); etfWrap.appendChild(etfTable);
+  add(rightCard, etfTitle, etfSub, etfWrap);
+  add(detGrid, leftCard, rightCard);
+  p.appendChild(detGrid);
+
+  function mVal(s) { return st.metric === "pct" ? (s.pct || 0) : st.metric === "amt" ? (s.amount_yi || 0) : (s.net_inflow_yi || 0); }
+  function mCurve(s) { return (st.metric === "pct" ? s.pct_curve : st.metric === "amt" ? s.amt_curve : s.flow_curve) || []; }
+  function mUnit() { return st.metric === "pct" ? "%" : " 亿"; }
+
+  function togglePin(code) {
+    var i = st.pins.indexOf(code);
+    if (i >= 0) st.pins.splice(i, 1); else st.pins.push(code);
+    drawAll();
+  }
+
+  function drawAll() {
+    var D = st.data || {}, secs = (D.sectors || []).slice(), m = D.meta || {}, v = D.volume || {};
+    var byPct = secs.slice().sort(function (a, b) { return (b.pct || 0) - (a.pct || 0); });
+    var topNames = byPct.filter(s => s.pct > 0).slice(0, 3).map(function (s) { return s.name + " " + fmtSigned(s.pct, 2) + "%"; }).join("、");
+    var botNames = byPct.filter(s => s.pct < 0).slice(-3).reverse().map(function (s) { return s.name + " " + fmtSigned(s.pct, 2) + "%"; }).join("、");
+    heroVerdict.replaceChildren(el("div", "up", "领涨：" + (topNames || DASH)), el("div", "down", "领跌：" + (botNames || DASH)));
+    heroSub.textContent = "交易日 " + (fmtDay(m.trade_date) || DASH) + " · 已采到 " + (m.sampled_at || DASH) +
+      "（" + (m.points_count || 0) + "/" + (m.total_grid || 241) + " 分钟点） · 涨 " + (m.up_sectors || 0) + " / 跌 " + (m.down_sectors || 0) +
+      " 个行业 ETF · 数据源 " + (m.source || "东财/同花顺");
+
+    chipBar.textContent = "";
+    var byCode = {}; secs.forEach(function (s) { byCode[s.code] = s; });
+    st.pins.forEach(function (c) {
+      var s = byCode[c]; if (!s) return;
+      var ch = el("button", "id-chip", "★ " + s.name + " " + fmtSigned(s.pct, 2) + "% ×");
+      ch.type = "button";
+      ch.addEventListener("click", function () { togglePin(c); });
+      chipBar.appendChild(ch);
+    });
+
+    // 1. Volume mini chart (using original dashboard C palette)
+    if (isNum(v.pred_total_yi)) {
+      vVal.textContent = fmtNum(v.pred_total_yi / 10000, 2) + "万亿 (" + fmtSigned(v.pred_vs_yday_pct, 1) + "%)";
+      vVal.className = dirClass(v.pred_vs_yday_pct);
+    }
+    var dpr = window.devicePixelRatio || 1;
+    var vr = vCanvas.getBoundingClientRect(), vW = Math.max(240, vr.width || 280), vH = 84;
+    vCanvas.width = vW * dpr; vCanvas.height = vH * dpr;
+    var vCtx = vCanvas.getContext("2d"); vCtx.scale(dpr, dpr); vCtx.clearRect(0, 0, vW, vH);
+    var vc = v.curve_pct || [];
+    if (vc.length > 1) {
+      var vMin = Math.min.apply(null, vc.concat([-5])), vMax = Math.max.apply(null, vc.concat([5])), vSpan = Math.max(1, vMax - vMin);
+      var vx = function (i) { return 32 + (i / 240) * (vW - 40); }, vy = function (val) { return 8 + (1 - (val - vMin) / vSpan) * (vH - 22); };
+      var y0 = vy(0);
+      vCtx.strokeStyle = C.axis; vCtx.setLineDash([3, 3]); vCtx.beginPath(); vCtx.moveTo(32, y0); vCtx.lineTo(vW - 8, y0); vCtx.stroke(); vCtx.setLineDash([]);
+      vCtx.fillStyle = C.muted; vCtx.font = "10px " + FONT; vCtx.textAlign = "right";
+      vCtx.fillText("0%", 28, y0 + 3);
+      if (isNum(v.yday_total_yi)) {
+        vCtx.fillText("昨 " + fmtNum(v.yday_total_yi / 10000, 2) + "万亿", vW - 8, Math.max(10, y0 - 3));
+      }
+      var vCol = vc[vc.length - 1] >= 0 ? C.up : C.down;
+      vCtx.beginPath();
+      vc.forEach(function (val, i) { if (i === 0) vCtx.moveTo(vx(i), vy(val)); else vCtx.lineTo(vx(i), vy(val)); });
+      vCtx.strokeStyle = vCol; vCtx.lineWidth = 1.6; vCtx.stroke();
+    }
+
+    if (!secs.length) return;
+    secs.sort(function (a, b) { return mVal(b) - mVal(a); });
+    if (!st.sel) st.sel = secs[0].code;
+
+    // 2. Main Race Chart (clean white background, C.up / C.down / C.warm / C.cold)
+    var rr = raceCanvas.getBoundingClientRect(), rW = Math.max(1, Math.floor(rr.width)), rH = 520;
+    raceCanvas.width = rW * dpr; raceCanvas.height = rH * dpr;
+    var ctx = raceCanvas.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, rW, rH);
+
+    var pinSet = Object.fromEntries(st.pins.map(c => [c, true]));
+    var vis = secs;
+    var leadCode = vis.length ? vis[0].code : null;
+
+    var padL = 52, padR = Math.min(205, Math.max(104, rW * 0.26)), padT = 22, padB = 28;
+    var plotW = rW - padL - padR, plotH = rH - padT - padB;
+    var allV = [0];
+    vis.forEach(function (s) { mCurve(s).forEach(function (v) { if (isNum(v)) allV.push(v); }); });
+    var minV = Math.min.apply(null, allV), maxV = Math.max.apply(null, allV);
+    var padV = Math.max((maxV - minV) * 0.1, 0.5); minV -= padV; maxV += padV;
+    var span = Math.max(1e-3, maxV - minV);
+    var xOf = function (i) { return padL + (i / 240) * plotW; }, yOf = function (val) { return padT + (1 - (val - minV) / span) * plotH; };
+
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.font = "11.5px " + FONT; ctx.fillStyle = C.muted; ctx.textAlign = "right";
+    for (var gi = 0; gi <= 4; gi++) {
+      var gv = minV + (span * gi) / 4, gy = yOf(gv);
+      ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(padL + plotW, gy); ctx.stroke();
+      ctx.fillText(fmtSigned(gv, st.metric === "pct" ? 1 : 0), padL - 6, gy + 4);
+    }
+    if (minV <= 0 && maxV >= 0) {
+      var zy = yOf(0); ctx.strokeStyle = C.axis; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(padL, zy); ctx.lineTo(padL + plotW, zy); ctx.stroke();
+    }
+    ctx.textAlign = "center";
+    [["09:31", 1], ["10:00", 30], ["10:30", 60], ["11:00", 90], ["11:30", 120], ["13:30", 150], ["14:00", 180], ["14:30", 210], ["15:00", 240]].forEach(function (tk) {
+      if (rW > 550 || [1,120,240].includes(tk[1])) ctx.fillText(tk[0], xOf(tk[1]), rH - 8);
+    });
+
+    var endPts = {};
+    vis.forEach(function (s) {
+      var cv = mCurve(s); if (!cv.length) return;
+      var val = mVal(s), isPin = !!pinSet[s.code], isLead = s.code === leadCode, isSel = s.code === st.sel;
+      var col = isSel ? C.cold : isLead ? C.up : isPin ? C.warm : (val >= 0 ? "rgba(200,64,47,0.38)" : "rgba(31,138,91,0.38)");
+      var lw = (isSel || isLead) ? 2.6 : isPin ? 2.0 : 1.25;
+      ctx.beginPath();
+      cv.forEach(function (v, i) { if (i === 0) ctx.moveTo(xOf(i), yOf(v)); else ctx.lineTo(xOf(i), yOf(v)); });
+      ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.stroke();
+      var li = cv.length - 1, ex = xOf(li), ey = yOf(cv[li]);
+      endPts[s.code] = { x: ex, y: ey, col: isSel ? C.cold : isLead ? C.up : isPin ? C.warm : (val >= 0 ? C.up : C.down), bold: isSel || isLead || isPin, star: isLead, val: val };
+      ctx.beginPath(); ctx.arc(ex, ey, (isSel || isLead || isPin) ? 3.2 : 2, 0, Math.PI * 2); ctx.fillStyle = endPts[s.code].col; ctx.fill();
+    });
+
+    var labelX = padL + plotW + 12, gap = Math.min(20, Math.max(14, plotH / Math.max(1, vis.length)));
+    var startY = padT + Math.max(6, (plotH - (vis.length - 1) * gap) / 2);
+    st.boxes = [];
+    vis.forEach(function (s, idx) {
+      var ep = endPts[s.code]; if (!ep) return;
+      var ly = startY + idx * gap;
+      ctx.save(); ctx.strokeStyle = ep.col; ctx.globalAlpha = ep.bold ? 0.72 : 0.32; ctx.setLineDash([2.5, 3]);
+      ctx.beginPath(); ctx.moveTo(ep.x + 3, ep.y); ctx.lineTo(labelX - 5, ly); ctx.stroke(); ctx.restore();
+      ctx.fillStyle = ep.col; ctx.fillRect(labelX - 3, ly - 5, 2, 11);
+      ctx.font = (ep.bold ? "650 " : "400 ") + "12px " + FONT; ctx.textAlign = "left";
+      ctx.globalAlpha = ep.bold ? 1 : 0.85;
+      ctx.fillText((ep.star ? "★ " : "") + s.name + " " + fmtSigned(ep.val, st.metric === "pct" ? 2 : 1) + mUnit(), labelX + 2, ly + 4, padR - 18);
+      ctx.globalAlpha = 1;
+      st.boxes.push({ code: s.code, x: labelX - 5, y: ly - 9, w: padR - 8, h: 18 });
+    });
+
+    // 3. Selected Sector Leaders
+    var selSec = byCode[st.sel] || secs[0];
+    stTitle.textContent = selSec.name + "（" + selSec.code + "）· 大市值个股分时与日 K";
+    stSub.textContent = "ETF 现价 " + fmtNum(selSec.price, 3) + "（" + fmtSigned(selSec.pct, 2) + "%） · 净流入 " + fmtSigned(selSec.net_inflow_yi, 2) + " 亿 · 成交 " + fmtNum(selSec.amount_yi, 2) + " 亿";
+
+    var sr = stCanvas.getBoundingClientRect(), sW = Math.max(320, sr.width || 480), sH = 210;
+    stCanvas.width = sW * dpr; stCanvas.height = sH * dpr;
+    var sCtx = stCanvas.getContext("2d"); sCtx.scale(dpr, dpr); sCtx.clearRect(0, 0, sW, sH);
+    var lds = selSec.leaders || [];
+    var lines = [{ name: selSec.name + "(ETF)", cv: selSec.pct_curve || [], col: C.ink, w: 2.4 }];
+    var lCols = [C.up, C.cold, C.warm, C.down];
+    lds.forEach(function (l, i) { if (l.pct_curve && l.pct_curve.length) lines.push({ name: l.name, cv: l.pct_curve, col: lCols[i % 4], w: 1.6 }); });
+    var sAll = [0]; lines.forEach(function (ln) { ln.cv.forEach(function (v) { if (isNum(v)) sAll.push(v); }); });
+    var sMin = Math.min.apply(null, sAll) - 0.5, sMax = Math.max.apply(null, sAll) + 0.5, sSpan = Math.max(1, sMax - sMin);
+    var sx = function (i) { return 40 + (i / 240) * (sW - 150); }, sy = function (v) { return 12 + (1 - (v - sMin) / sSpan) * (sH - 28); };
+    sCtx.strokeStyle = C.grid; sCtx.beginPath(); sCtx.moveTo(40, sy(0)); sCtx.lineTo(sW - 110, sy(0)); sCtx.stroke();
+    lines.forEach(function (ln, idx) {
+      if (!ln.cv.length) return;
+      sCtx.beginPath();
+      ln.cv.forEach(function (v, i) { if (i === 0) sCtx.moveTo(sx(i), sy(v)); else sCtx.lineTo(sx(i), sy(v)); });
+      sCtx.strokeStyle = ln.col; sCtx.lineWidth = ln.w; sCtx.stroke();
+      sCtx.fillStyle = ln.col; sCtx.font = (idx === 0 ? "650 " : "400 ") + "11.5px " + FONT; sCtx.textAlign = "left";
+      sCtx.fillText(ln.name + " " + fmtSigned(ln.cv[ln.cv.length - 1], 2) + "%", sW - 104, 22 + idx * 18);
+    });
+
+    stTbody.textContent = "";
+    [{ name: selSec.name + "(ETF)", code: selSec.code, price: selSec.price, pct: selSec.pct, open: selSec.open, high: selSec.high, low: selSec.low, amount_yi: selSec.amount_yi, mv_yi: null }].concat(lds).forEach(function (r, idx) {
+      var tr = el("tr"), dc = dirClass(r.pct), tdName = el("td");
+      add(tdName, el("b", null, r.name), el("span", "id-code", String(r.code || "").split(".")[0]));
+      add(tr,
+        tdName,
+        el("td", dc, fmtNum(r.price, idx === 0 ? 3 : 2)),
+        el("td", dc, fmtSigned(r.pct, 2) + "%"),
+        el("td", "muted", fmtNum(r.open, idx === 0 ? 3 : 2) + "/" + fmtNum(r.high, idx === 0 ? 3 : 2) + "/" + fmtNum(r.low, idx === 0 ? 3 : 2)),
+        el("td", null, fmtNum(r.amount_yi, 2) + "亿"),
+        el("td", null, isNum(r.mv_yi) ? fmtNum(r.mv_yi, 0) + "亿" : DASH)
+      );
+      stTbody.appendChild(tr);
+    });
+
+    // 4. All 24 ETFs table
+    etfTbody.textContent = "";
+    secs.forEach(function (s) {
+      var tr = el("tr", s.code === st.sel ? "on" : ""), isPin = st.pins.indexOf(s.code) >= 0;
+      var td0 = el("td"), star = el("span", null, isPin ? "★ " : "☆ ");
+      star.style.color = isPin ? C.warm : C.muted;
+      star.addEventListener("click", function (ev) { ev.stopPropagation(); togglePin(s.code); });
+      add(td0, star, el("b", null, s.name), el("span", "id-code", s.code.split(".")[0]));
+      var topL = (s.leaders || [])[0];
+      add(tr, td0,
+        el("td", dirClass(s.pct), fmtNum(s.price, 3)),
+        el("td", dirClass(s.pct), fmtSigned(s.pct, 2) + "%"),
+        el("td", dirClass(s.net_inflow_yi), fmtSigned(s.net_inflow_yi, 1) + "亿"),
+        el("td", null, fmtNum(s.amount_yi, 2) + "亿"),
+        el("td", topL ? dirClass(topL.pct) : "muted", topL ? (topL.name + " " + fmtSigned(topL.pct, 1) + "%") : DASH)
+      );
+      tr.addEventListener("click", function () { st.sel = s.code; drawAll(); });
+      etfTbody.appendChild(tr);
+    });
+  }
+
+  raceCanvas.addEventListener("click", function (ev) {
+    var r = raceCanvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    for (var i = 0; i < st.boxes.length; i++) {
+      var b = st.boxes[i];
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) { st.sel = b.code; drawAll(); break; }
+    }
+  });
+
+  function liveRefresh() {
+    var D = st.data; if (replaying || (DATA.meta || {}).demo || !D || !Array.isArray(D.sectors)) return;
+    var codes = [];
+    D.sectors.forEach(function (s) { codes.push(s.code); if (s.bk) codes.push(s.bk); (s.leaders || []).forEach(function (l) { codes.push(l.code); }); });
+    var secids = codes.slice(0, 85).map(function (c) {
+      if (c.indexOf("BK") === 0) return "90." + c;
+      var pt = c.split("."); return (pt[1] === "SH" ? "1." : "0.") + pt[0];
+    });
+    var cb = "__id_cb_" + Date.now(), sc = document.createElement("script");
+    window[cb] = function (res) {
+      if (sc.parentNode) sc.parentNode.removeChild(sc);
+      delete window[cb];
+      var diff = ((res && res.data) || {}).diff || [], qm = {};
+      diff.forEach(function (r) { qm[String(r.f12)] = r; });
+      D.sectors.forEach(function (s) {
+        var qe = qm[s.code.split(".")[0]], qb = s.bk ? qm[s.bk] : null;
+        if (qe && isNum(qe.f2)) { s.price = qe.f2; if (isNum(qe.f3)) s.pct = qe.f3; if (isNum(qe.f6)) s.amount_yi = Number((qe.f6 / 1e8).toFixed(2)); }
+        if (qb && isNum(qb.f62)) s.net_inflow_yi = Number((qb.f62 / 1e8).toFixed(2));
+      });
+      drawAll();
+    };
+    sc.src = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&fields=f12,f2,f3,f6,f15,f16,f17,f18,f62&secids=" + secids.join(",") + "&cb=" + cb;
+    document.head.appendChild(sc);
+  }
+
+  btnRefresh.addEventListener("click", liveRefresh);
+  setInterval(function () { if (document.getElementById("p-intraday").classList.contains("on")) liveRefresh(); }, 60000);
+  window.addEventListener("resize", function () { if (document.getElementById("p-intraday").classList.contains("on")) drawAll(); });
+  drawAll();
+}
+
 /* ================= footer (facts, warnings) ================= */
 function renderFooter(root) {
   var m = DATA.meta || {};
@@ -2506,6 +2882,7 @@ var PAGES = [
   { key: "home", name: "总览", render: renderHome },
   { key: "liquidity", name: "流动性", render: renderLiquidity },
   { key: "sector", name: "板块流向", render: renderSector },
+  { key: "intraday", name: "盘中强弱", render: renderIntraday },
   { key: "team", name: "国家队", render: renderTeam },
   { key: "retail", name: "散户情绪", render: renderRetail },
   { key: "value", name: "估值·筹码", render: renderValue },

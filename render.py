@@ -47,14 +47,14 @@ def archive_json(payload: dict) -> str:
     return json.dumps(_clean(payload), ensure_ascii=False, allow_nan=False, indent=1) + "\n"
 
 
-def render(template_path: str, payload: dict, out_path: str) -> None:
-    """把 payload 嵌入模板中唯一的 `/*__DATA__*/null`；找不到或出现多处则抛 ValueError。"""
+def render(template_path: str, payload: dict, out_path: str, placeholder: str = PLACEHOLDER) -> None:
+    """把 payload 嵌入模板中唯一的 placeholder；找不到或出现多处则抛 ValueError。"""
     with open(template_path, encoding="utf-8") as fh:
         tpl = fh.read()
-    n = tpl.count(PLACEHOLDER)
+    n = tpl.count(placeholder)
     if n != 1:
-        raise ValueError(f"模板中应恰有 1 处 {PLACEHOLDER}，实际 {n} 处")
-    html = tpl.replace(PLACEHOLDER, to_json(payload), 1)
+        raise ValueError(f"模板中应恰有 1 处 {placeholder}，实际 {n} 处")
+    html = tpl.replace(placeholder, to_json(payload), 1)
     d = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(d, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as fh:

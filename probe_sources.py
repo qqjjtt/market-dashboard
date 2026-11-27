@@ -114,6 +114,23 @@ def ths_industry_flow():
     return {r["行业"]: float(r["净额"]) for _, r in df.iterrows()}
 
 
+def _probe_min(kind, code, date):
+    import metrics_etf as me
+    import sources
+    start = (datetime.strptime(date, "%Y%m%d") - timedelta(days=7)).strftime("%Y%m%d")
+    end = datetime.now().strftime("%Y%m%d")
+    fn = sources.fetch_em_minutes if kind == "em" else sources.fetch_ths_minutes
+    df = fn(code, start, max(date, end))
+    if df is None or df.empty:
+        raise ValueError("无分钟数据")
+    days = sorted(df["trade_time"].astype(str).str[:10].unique())
+    last_day = days[-1]
+    sub = df[df["trade_time"].astype(str).str[:10] == last_day]
+    tr = me.tail_ratio(sub)
+    tail_str = f"，尾盘占比 {tr:.1f}%" if tr is not None else ""
+    return f"覆盖 {len(days)} 日（最新 {last_day}，{len(sub)} 根{tail_str}）"
+
+
 # ------------------------------------------------------------------ tushare 基准
 def tushare_baseline(date):
     import tushare as ts
@@ -205,8 +222,10 @@ def main():
         lambda r: (lambda d: f"{r[d]:.1f} 亿 vs tushare {base['rzye']:.1f} 亿，差 "
                              f"{(r[d] / base['rzye'] - 1) * 100:+.2f}%"
                    if d in r and base["rzye"] else f"无 {d}（最新 {max(r)}）")(dash(base["margin_date"] or date)))
+    add("东方财富", "510300 1分钟线", lambda: _probe_min("em", "510300.SH", date), lambda r: r)
     add("东方财富", "行业资金流（实时）", em_industry_flow,
         lambda r: f"{len(r)} 个板块（东财口径，与同花顺不可直接比）")
+    add("同花顺", "510300 1分钟线", lambda: _probe_min("ths", "510300.SH", date), lambda r: r)
     add("同花顺", "行业资金流", ths_industry_flow, lambda r: compare_flow(r, base["ind_flow"]))
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
