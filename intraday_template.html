@@ -40,9 +40,10 @@
     --accent: #3b82f6;
   }
   * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
+  html { -webkit-text-size-adjust: 100%; overflow-x: clip; }
   body {
     margin: 0;
+    overflow-x: clip;
     background: var(--bg);
     color: var(--ink);
     font-family: "Geist", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -98,7 +99,8 @@
   }
   .top-ribbon .nav-link:hover { opacity: 0.85; }
 
-  .wrap { max-width: 1240px; margin: 0 auto; padding: 16px 20px 40px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 16px 20px 40px; min-width: 0; }
+  canvas { display: block; max-width: 100%; }
 
   /* 通用卡片与胶囊（对齐主看板 .card / .badge / .sec-title / .seg） */
   .card {
@@ -153,7 +155,8 @@
     line-height: 1.35;
     margin-top: 6px;
   }
-  .meta-line { color: var(--muted); font-size: 13.5px; margin-top: 4px; }
+  .meta-line { color: var(--muted); font-size: 13px; margin-top: 4px; font-weight: 700; line-height: 1.45; }
+  #sub-summary .up, #sub-summary .down { display: block; font-weight: 700; }
 
   /* 分段控制器（与原看板 .seg 一致） */
   .ctl-bar {
@@ -279,10 +282,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
+    min-width: 0;
   }
-  @media (max-width: 1020px) {
-    .detail-grid { grid-template-columns: 1fr; }
-  }
+  .detail-grid .card { min-width: 0; overflow: hidden; }
   .panel-head {
     display: flex;
     flex-wrap: wrap;
@@ -292,19 +294,22 @@
     margin-bottom: 8px;
   }
   .panel-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
-  .panel-head .sub { color: var(--muted); font-size: 13px; }
+  .panel-head .sub { color: var(--muted); font-size: 12.5px; font-weight: 500; }
   .stock-canvas { width: 100%; height: 225px; display: block; margin-bottom: 10px; }
 
   table.dk-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13.5px;
+    table-layout: fixed;
+    font-size: 12.5px;
   }
   table.dk-table th, table.dk-table td {
-    padding: 7px 6px;
+    padding: 6px 4px;
     border-bottom: 1px solid var(--hair);
     text-align: right;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: keep-all;
   }
   table.dk-table th:first-child, table.dk-table td:first-child { text-align: left; }
   table.dk-table th { color: var(--muted); font-weight: 500; font-size: 12.5px; }
@@ -312,8 +317,15 @@
   table.dk-table tbody tr { cursor: pointer; }
   table.dk-table tbody tr:hover { background: var(--surface); }
   table.dk-table tbody tr.active { background: color-mix(in oklab, var(--cold) 10%, var(--card)); }
-  .kbar-cell { width: 64px; }
-  .kbar-svg { width: 56px; height: 18px; vertical-align: middle; }
+  .kbar-cell { width: 9%; }
+  .kbar-svg { width: 100%; max-width: 56px; height: 18px; vertical-align: middle; }
+  table.dk-table col.c-name { width: 24%; }
+  table.dk-table col.c-px { width: 12%; }
+  table.dk-table col.c-pct { width: 12%; }
+  table.dk-table col.c-flow { width: 13%; }
+  table.dk-table col.c-amt { width: 12%; }
+  table.dk-table col.c-k { width: 9%; }
+  table.dk-table col.c-lead { width: 18%; }
   .code-sub {
     color: var(--muted);
     font-size: 12px;
@@ -356,15 +368,27 @@
   .id-stack { display: grid; gap: 14px; }
   .id-stack .card, .detail-grid .card { min-width: 0; }
   .id-fit, table.dk-table { table-layout: fixed; }
-  .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { white-space: normal; overflow-wrap: anywhere; }
-  #sub-summary { font-size: 13px; font-weight: 650; }
+  .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { white-space: normal; overflow-wrap: normal; word-break: keep-all; }
+  #sub-summary { font-size: 13px; font-weight: 700; }
   .history-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); }
-  .history-controls select { margin-left: 4px; padding: 4px 8px; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--hair); border-radius: 6px; }
-  @media (max-width: 600px) {
-    .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { font-size: 11px; padding: 6px 2px; }
-    .id-fit th:first-child, table.dk-table th:first-child { width: 24%; }
-    .id-code, .code-sub { display: block; margin-left: 0; font-size: 10px; }
-    .kbar-svg { max-width: 100%; }
+  .history-controls input, .history-controls select { margin-left: 4px; padding: 4px 8px; font: inherit; font-size: 13px; color: var(--ink); background: var(--card); border: 1px solid var(--hair); border-radius: 6px; }
+  .history-controls input { width: 11em; }
+  @media (max-width: 720px) {
+    table.dk-table, table.dk-table tbody, table.dk-table tr, table.dk-table td { display: block; }
+    table.dk-table thead { display: none; }
+    table.dk-table tr {
+      display: grid;
+      grid-template-columns: 1.15fr 0.8fr 0.9fr 1fr;
+      gap: 2px 8px;
+      align-items: baseline;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--hair);
+    }
+    table.dk-table td { padding: 0; border: 0; text-align: right; }
+    table.dk-table td:first-child { grid-column: 1 / -1; text-align: left; }
+    .id-code, .code-sub { display: inline; margin-left: 5px; font-size: 11px; }
+    #etf-table td:nth-child(5), #etf-table td:nth-child(6),
+    #leader-table td:nth-child(4), #leader-table td:nth-child(5) { display: none; }
   }
 </style>
 </head>
@@ -406,7 +430,7 @@
         </div>
         <div class="picker-grid" id="picker-grid"></div>
       </div>
-      <div class="history-controls" id="history-controls"><label>历史回放 <select aria-label="交易日"><option value="">实时行情</option></select></label><span role="status"></span></div>
+      <div class="history-controls" id="history-controls"><label>历史数据 <input type="search" aria-label="搜寻交易日" placeholder="搜寻日期" autocomplete="off"></label><select aria-label="交易日"><option value="">实时行情</option></select><span role="status"></span></div>
       <div class="chip-bar" id="pin-chips"></div>
     </div>
     <div class="vol-card">
@@ -421,7 +445,7 @@
   <div class="card main-card">
     <canvas class="race-canvas" id="race-canvas"></canvas>
     <div class="race-foot">
-      <span id="race-hint">提示：点击右侧放射板块标签或下方表格行，可锁定查看「该行业 ETF 大市值候选股分时与日 K」；暖橙色为自定义监控板块。</span>
+      <span id="race-hint">提示：曲线全量显示 24 只行业 ETF。点击右侧标签或下方表格，查看该 ETF 的权重大市值股；暖橙色为自定义监控板块。</span>
       <span id="refresh-status">自动刷新间隔：60 秒</span>
     </div>
   </div>
@@ -429,20 +453,23 @@
   <div class="detail-grid">
     <div class="card">
       <div class="panel-head">
-        <h2 id="stock-panel-title">大市值个股分时与日 K 穿透</h2>
+        <h2 id="stock-panel-title">权重大市值股分时与日 K</h2>
         <span class="sub" id="stock-panel-sub">点击上方板块切换</span>
       </div>
       <canvas class="stock-canvas" id="stock-canvas"></canvas>
       <table class="dk-table" id="leader-table">
+        <colgroup>
+          <col class="c-name"><col class="c-px"><col class="c-pct"><col class="c-flow"><col class="c-k"><col class="c-amt"><col class="c-lead">
+        </colgroup>
         <thead>
           <tr>
-            <th>强势股 / 代码</th>
+            <th>权重股 / 代码</th>
             <th>现价</th>
             <th>日内涨跌</th>
             <th>开 / 高 / 低</th>
-            <th>日K形态</th>
+            <th>日K</th>
             <th>成交额</th>
-            <th>总市值</th>
+            <th>权重 · 市值</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -452,10 +479,13 @@
     <div class="card">
       <div class="panel-head">
         <h2>全部行业 ETF 日 K 实时排行</h2>
-        <span class="sub">点击行穿透强势股 · 点 ★ 加入自定义监控</span>
+        <span class="sub">全量 24 只 · 点击行看权重股 · 点 ★ 加入监控</span>
       </div>
       <div>
         <table class="dk-table" id="etf-table">
+          <colgroup>
+            <col class="c-name"><col class="c-px"><col class="c-pct"><col class="c-flow"><col class="c-amt"><col class="c-k"><col class="c-lead">
+          </colgroup>
           <thead>
             <tr>
               <th>板块 ETF</th>
@@ -463,8 +493,8 @@
               <th>涨跌幅</th>
               <th>净流入</th>
               <th>成交额</th>
-              <th>日K形态</th>
-              <th>代表个股</th>
+              <th>日K</th>
+              <th>权重股</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -476,21 +506,23 @@
 
 <script>
 function wireIntradayHistory(box, show) {
-  var select = box.querySelector("select"), status = box.querySelector('[role="status"]'), version = 0;
+  var input = box.querySelector("input"), select = box.querySelector("select"), status = box.querySelector('[role="status"]'), version = 0, dates = [];
   async function read(path) {
     var r = await fetch("history/intraday/" + path, {cache: "no-store"});
     if (!r.ok) throw new Error("history unavailable");
     return r.json();
   }
-  read("manifest.json").then(function (index) {
-    (index.dates || []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse().forEach(function (day) {
+  function fill(query) {
+    var q = (query || "").trim(), keep = select.value;
+    select.replaceChildren(new Option("实时行情", ""));
+    dates.filter(function (day) { return !q || day.indexOf(q) >= 0; }).forEach(function (day) {
       select.add(new Option(day, day));
     });
-    if (select.options.length === 1) status.textContent = "暂无盘后存档";
-  }).catch(function () { status.textContent = "暂无可读取的盘后存档"; });
-  select.addEventListener("change", async function () {
-    var day = select.value, ticket = ++version;
-    if (!day) { show(null, ""); status.textContent = ""; return; }
+    select.value = [].some.call(select.options, function (opt) { return opt.value === keep; }) ? keep : "";
+  }
+  async function openDay(day) {
+    var ticket = ++version;
+    if (!day) { show(null, ""); status.textContent = dates.length ? "可搜寻 " + dates.length + " 个交易日" : ""; return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
     status.textContent = "正在打开 " + day;
     try {
@@ -500,8 +532,22 @@ function wireIntradayHistory(box, show) {
       show(snapshot, day); status.textContent = "盘后存档 · " + day;
     } catch (e) {
       if (ticket !== version) return;
-      select.value = ""; show(null, ""); status.textContent = "读取失败，已返回实时行情";
+      select.value = ""; if (input) input.value = ""; show(null, ""); status.textContent = "读取失败，已返回实时行情";
     }
+  }
+  read("manifest.json").then(function (index) {
+    dates = (index.dates || []).filter(function (day) { return /^\d{4}-\d{2}-\d{2}$/.test(day); }).sort().reverse();
+    fill("");
+    status.textContent = dates.length ? "可搜寻 " + dates.length + " 个交易日" : "暂无盘后存档";
+  }).catch(function () { status.textContent = "暂无可读取的盘后存档"; });
+  if (input) input.addEventListener("input", function () {
+    fill(input.value);
+    var q = input.value.trim();
+    if (dates.indexOf(q) >= 0) { select.value = q; openDay(q); }
+  });
+  select.addEventListener("change", function () {
+    if (input) input.value = select.value;
+    openDay(select.value);
   });
 }
 
@@ -615,8 +661,13 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
     if (byPct.length) {
       var top3 = byPct.filter(s => s.pct > 0).slice(0, 3).map(function (s) { return s.name + " " + fmtSigned(s.pct, 2) + "%"; }).join("、");
       var bot3 = byPct.filter(s => s.pct < 0).slice(-3).reverse().map(function (s) { return s.name + " " + fmtSigned(s.pct, 2) + "%"; }).join("、");
-      document.getElementById("sub-summary").replaceChildren(...[["up", "领涨：", top3], ["down", "领跌：", bot3]].map(([cls, label, value]) => {
-        var row = document.createElement("div"); row.className = cls; row.textContent = label + (value || "—"); return row;
+      document.getElementById("sub-summary").replaceChildren(...[["up", "领涨", top3], ["down", "领跌", bot3]].map(function (pair) {
+        var row = document.createElement("div"), tag = document.createElement("b");
+        row.className = pair[0];
+        tag.textContent = pair[1];
+        row.appendChild(tag);
+        row.appendChild(document.createTextNode("　" + (pair[2] || "—")));
+        return row;
       }));
     }
   }
@@ -748,9 +799,12 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
   function drawRaceChart() {
     var canvas = document.getElementById("race-canvas");
     var D = state.data || {}, secs = (D.sectors || []).slice(), grid = D.grid || [], C = themeColors();
+    var nSec = Math.max(1, secs.length);
+    var H = Math.max(560, 72 + nSec * 20);
+    canvas.style.height = H + "px";
     var dpr = window.devicePixelRatio || 1;
     var rect = canvas.getBoundingClientRect();
-    var W = Math.max(1, Math.floor(rect.width)), H = Math.max(460, rect.height || 560);
+    var W = Math.max(1, Math.floor(rect.width));
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     var ctx = canvas.getContext("2d");
@@ -839,11 +893,11 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
       if (isLead) return { color: C.up, textColor: C.up, width: 2.6, z: 3, bold: true, star: true };
       if (isPin) return { color: C.gold, textColor: C.gold, width: 2.1, z: 2, bold: true };
       return {
-        color: val >= 0 ? C.upMuted : C.downMuted,
+        color: val >= 0 ? C.up : C.down,
         textColor: val >= 0 ? C.up : C.down,
-        width: 1.25,
+        width: 1.6,
         z: 1,
-        bold: false
+        bold: true
       };
     }
 
@@ -875,9 +929,8 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
 
     var nVis = visible.length;
     var labelX = padL + plotW + 14;
-    var minGap = Math.min(20.5, Math.max(14.5, plotH / Math.max(1, nVis)));
-    var totalLabelH = (nVis - 1) * minGap;
-    var startY = padT + Math.max(6, (plotH - totalLabelH) / 2);
+    var minGap = nVis > 1 ? Math.max(16, (plotH - 8) / (nVis - 1)) : plotH;
+    var startY = padT + 4;
 
     state.labelBoxes = [];
     visible.forEach(function (s, idx) {
@@ -888,7 +941,7 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
 
       ctx.save();
       ctx.strokeStyle = st.textColor;
-      ctx.globalAlpha = st.bold ? 0.72 : 0.32;
+      ctx.globalAlpha = 0.9;
       ctx.lineWidth = st.bold ? 1.15 : 0.9;
       ctx.setLineDash([2.5, 3]);
       ctx.beginPath();
@@ -898,7 +951,7 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
       ctx.restore();
 
       ctx.fillStyle = st.textColor;
-      ctx.globalAlpha = st.bold ? 1 : 0.85;
+      ctx.globalAlpha = 1;
       ctx.fillRect(labelX - 4, ly - 5.5, 2.2, 11);
 
       ctx.font = (st.bold ? "650 " : "400 ") + "12.5px " + FONT;
@@ -929,7 +982,7 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
     }
 
     document.getElementById("stock-panel-title").textContent =
-      target.name + "（" + target.code + "）· 大市值个股分时与日 K";
+      target.name + "（" + target.code + "）· 权重大市值股";
     document.getElementById("stock-panel-sub").textContent =
       "ETF 现价 " + fmtNum(target.price, 3) + "（" + fmtSigned(target.pct, 2) + "%） · 净额 " +
       fmtSigned(target.net_inflow_yi, 2) + " 亿 · 成交 " + fmtNum(target.amount_yi, 2) + " 亿";
@@ -1015,7 +1068,8 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
           fmtNum(r.low, idx === 0 ? 3 : 2) + '</td>' +
         '<td class="kbar-cell">' + makeKbarSvg(r.open, r.high, r.low, r.price, r.pre_close) + '</td>' +
         '<td>' + fmtNum(r.amount_yi, 2) + '亿</td>' +
-        '<td>' + (r.mv_yi == null ? '—' : fmtNum(r.mv_yi, 0) + '亿') + '</td>';
+        '<td>' + (r.weight_pct == null ? '' : ('权重 ' + fmtNum(r.weight_pct, 1) + '%')) +
+          (r.mv_yi == null ? (r.weight_pct == null ? '—' : '') : ((r.weight_pct == null ? '' : ' · ') + fmtNum(r.mv_yi, 0) + '亿')) + '</td>';
       tbody.appendChild(tr);
     });
   }

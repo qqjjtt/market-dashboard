@@ -446,22 +446,25 @@
   .id-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
   .id-chip { font: inherit; font-size: 12.5px; color: var(--warm); background: color-mix(in oklab, var(--warm) 10%, #fff); border: 1px solid color-mix(in oklab, var(--warm) 30%, #fff); border-radius: 999px; padding: 2px 10px; cursor: pointer; font-weight: 550; }
   .id-chip:hover { background: color-mix(in oklab, var(--warm) 16%, #fff); }
-  .id-table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
-  .id-table th { text-align: right; color: var(--muted); font-weight: 500; font-size: 12.5px; padding: 6px 8px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
-  .id-table td { padding: 8px 8px; border-bottom: 1px solid var(--hair); text-align: right; white-space: nowrap; vertical-align: middle; }
+  #p-intraday { min-width: 0; overflow-x: clip; }
+  #p-intraday canvas { display: block; max-width: 100%; }
+  .id-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .id-table th { text-align: right; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 4px; border-bottom: 1px solid var(--hair); white-space: normal; overflow-wrap: normal; word-break: keep-all; }
+  .id-table td { padding: 6px 4px; border-bottom: 1px solid var(--hair); text-align: right; white-space: normal; overflow-wrap: normal; word-break: keep-all; vertical-align: middle; }
   .id-table th:first-child, .id-table td:first-child { text-align: left; }
   .id-table tr:last-child td { border-bottom: 0; }
   .id-table tbody tr { cursor: pointer; }
   .id-table tbody tr:hover { background: var(--surface); }
   .id-table tbody tr.on { background: color-mix(in oklab, var(--cold) 10%, #fff); }
   .id-code { color: var(--muted); font-size: 12px; margin-left: 5px; font-weight: 400; }
-  .id-stack { display: grid; gap: 14px; }
-  .id-stack .card, .detail-grid .card { min-width: 0; }
+  .id-stack { display: grid; gap: 14px; min-width: 0; }
+  .id-stack .card, .detail-grid .card { min-width: 0; overflow: hidden; }
   .id-fit, table.dk-table { table-layout: fixed; }
-  .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { white-space: normal; overflow-wrap: anywhere; }
+  .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { white-space: normal; overflow-wrap: normal; word-break: keep-all; }
   #sub-summary { font-size: 13px; font-weight: 650; }
   .history-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
-  .history-controls select { margin-left: 4px; padding: 4px 8px; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--hair); border-radius: 6px; }
+  .history-controls input, .history-controls select { margin-left: 4px; padding: 4px 8px; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--hair); border-radius: 6px; }
+  .history-controls input { width: 11em; }
   @media (max-width: 600px) {
     .id-fit th, .id-fit td, table.dk-table th, table.dk-table td { font-size: 11px; padding: 6px 2px; }
     .id-fit th:first-child, table.dk-table th:first-child { width: 24%; }
@@ -2523,21 +2526,23 @@ function renderCalendar(p) {
 
 /* ================= intraday (sector ETFs & leaders, unified editorial style) ================= */
 function wireIntradayHistory(box, show) {
-  var select = box.querySelector("select"), status = box.querySelector('[role="status"]'), version = 0;
+  var input = box.querySelector("input"), select = box.querySelector("select"), status = box.querySelector('[role="status"]'), version = 0, dates = [];
   async function read(path) {
     var r = await fetch("history/intraday/" + path, {cache: "no-store"});
     if (!r.ok) throw new Error("history unavailable");
     return r.json();
   }
-  read("manifest.json").then(function (index) {
-    (index.dates || []).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse().forEach(function (day) {
+  function fill(query) {
+    var q = (query || "").trim(), keep = select.value;
+    select.replaceChildren(new Option("实时行情", ""));
+    dates.filter(function (day) { return !q || day.indexOf(q) >= 0; }).forEach(function (day) {
       select.add(new Option(day, day));
     });
-    if (select.options.length === 1) status.textContent = "暂无盘后存档";
-  }).catch(function () { status.textContent = "暂无可读取的盘后存档"; });
-  select.addEventListener("change", async function () {
-    var day = select.value, ticket = ++version;
-    if (!day) { show(null, ""); status.textContent = ""; return; }
+    select.value = [].some.call(select.options, function (opt) { return opt.value === keep; }) ? keep : "";
+  }
+  async function openDay(day) {
+    var ticket = ++version;
+    if (!day) { show(null, ""); status.textContent = dates.length ? "可搜寻 " + dates.length + " 个交易日" : ""; return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
     status.textContent = "正在打开 " + day;
     try {
@@ -2547,8 +2552,22 @@ function wireIntradayHistory(box, show) {
       show(snapshot, day); status.textContent = "盘后存档 · " + day;
     } catch (e) {
       if (ticket !== version) return;
-      select.value = ""; show(null, ""); status.textContent = "读取失败，已返回实时行情";
+      select.value = ""; if (input) input.value = ""; show(null, ""); status.textContent = "读取失败，已返回实时行情";
     }
+  }
+  read("manifest.json").then(function (index) {
+    dates = (index.dates || []).filter(function (day) { return /^\d{4}-\d{2}-\d{2}$/.test(day); }).sort().reverse();
+    fill("");
+    status.textContent = dates.length ? "可搜寻 " + dates.length + " 个交易日" : "暂无盘后存档";
+  }).catch(function () { status.textContent = "暂无可读取的盘后存档"; });
+  if (input) input.addEventListener("input", function () {
+    fill(input.value);
+    var q = input.value.trim();
+    if (dates.indexOf(q) >= 0) { select.value = q; openDay(q); }
+  });
+  select.addEventListener("change", function () {
+    if (input) input.value = select.value;
+    openDay(select.value);
   });
 }
 
@@ -2596,7 +2615,7 @@ function renderIntraday(p) {
   p.appendChild(ctl);
   var liveData = st.data, replaying = false;
   var historyBox = el("div", "history-controls");
-  historyBox.innerHTML = '<label>历史回放 <select aria-label="交易日"><option value="">实时行情</option></select></label><span role="status"></span>';
+  historyBox.innerHTML = '<label>历史数据 <input type="search" aria-label="搜寻交易日" placeholder="搜寻日期" autocomplete="off"></label><select aria-label="交易日"><option value="">实时行情</option></select><span role="status"></span>';
   p.appendChild(historyBox);
   wireIntradayHistory(historyBox, function (snapshot, day) {
     replaying = Boolean(day);
@@ -2611,15 +2630,15 @@ function renderIntraday(p) {
   // 3. 主分时赛马图卡片（白底 + --hair 边框 + 原看板配色）
   var raceCard = el("div", "card chart-card"), raceCanvas = el("canvas");
   raceCanvas.style.width = "100%"; raceCanvas.style.height = "520px"; raceCanvas.style.display = "block"; raceCanvas.style.cursor = "pointer";
-  var statusFoot = el("p", "note-foot", "说明：点击右侧放射板块标签或下方表格行，可穿透查看该行业 ETF 大市值候选股的分时走势与日 K。暖橙色为自定义监控板块。");
+  var statusFoot = el("p", "note-foot", "说明：24 只行业 ETF 全量显示。点击右侧标签或下方表格，查看该 ETF 权重大市值股。暖橙色为自定义监控板块。");
   add(raceCard, raceCanvas, statusFoot);
   p.appendChild(raceCard);
 
   // 4. 下方双栏明细卡片（标准 .two-col + .card）
-  secTitle(p, "大市值个股与行业 ETF 日 K 排行", "个股从配置的候选池按总市值优先选取，不等同于基金最新持仓权重；点 ★ 加入监控");
+  secTitle(p, "权重大市值股与行业 ETF 日 K 排行", "个股取 ETF 披露持仓里市值最大的权重股；点 ★ 加入监控");
   var detGrid = el("div", "id-stack"), leftCard = el("div", "card"), rightCard = el("div", "card");
   detGrid.style.marginTop = "0";
-  var stTitle = el("h3", null, "大市值个股分时与日 K"), stSub = el("p", "sub-line", "");
+  var stTitle = el("h3", null, "权重大市值股分时与日 K"), stSub = el("p", "sub-line", "");
   var stCanvas = el("canvas");
   stCanvas.style.width = "100%"; stCanvas.style.height = "210px"; stCanvas.style.display = "block"; stCanvas.style.marginBottom = "10px";
   var stTable = el("table", "id-table id-fit"), stThead = el("thead"), stTbody = el("tbody");
@@ -2628,7 +2647,7 @@ function renderIntraday(p) {
   stThead.appendChild(stTr); add(stTable, stThead, stTbody);
   add(leftCard, stTitle, stSub, stCanvas, stTable);
 
-  var etfTitle = el("h3", null, "全部行业 ETF 实时日 K 排行"), etfSub = el("p", "sub-line", "点击行切换左侧强势股穿透 · 点 ★ 加入自定义监控");
+  var etfTitle = el("h3", null, "全部行业 ETF 日 K 实时排行"), etfSub = el("p", "sub-line", "全量显示 · 点击行看权重股 · 点 ★ 加入监控");
   var etfWrap = el("div");
   var etfTable = el("table", "id-table id-fit"), etfThead = el("thead"), etfTbody = el("tbody");
   var etfTr = el("tr");
@@ -2653,7 +2672,12 @@ function renderIntraday(p) {
     var byPct = secs.slice().sort(function (a, b) { return (b.pct || 0) - (a.pct || 0); });
     var topNames = byPct.filter(s => s.pct > 0).slice(0, 3).map(function (s) { return s.name + " " + fmtSigned(s.pct, 2) + "%"; }).join("、");
     var botNames = byPct.filter(s => s.pct < 0).slice(-3).reverse().map(function (s) { return s.name + " " + fmtSigned(s.pct, 2) + "%"; }).join("、");
-    heroVerdict.replaceChildren(el("div", "up", "领涨：" + (topNames || DASH)), el("div", "down", "领跌：" + (botNames || DASH)));
+    heroVerdict.style.display = "flex";
+    heroVerdict.style.flexDirection = "column";
+    heroVerdict.style.gap = "2px";
+    heroVerdict.style.fontWeight = "700";
+    heroVerdict.style.lineHeight = "1.45";
+    heroVerdict.replaceChildren(el("div", "up", "领涨　" + (topNames || DASH)), el("div", "down", "领跌　" + (botNames || DASH)));
     heroSub.textContent = "交易日 " + (fmtDay(m.trade_date) || DASH) + " · 已采到 " + (m.sampled_at || DASH) +
       "（" + (m.points_count || 0) + "/" + (m.total_grid || 241) + " 分钟点） · 涨 " + (m.up_sectors || 0) + " / 跌 " + (m.down_sectors || 0) +
       " 个行业 ETF · 数据源 " + (m.source || "东财/同花顺");
@@ -2699,7 +2723,9 @@ function renderIntraday(p) {
     if (!st.sel) st.sel = secs[0].code;
 
     // 2. Main Race Chart (clean white background, C.up / C.down / C.warm / C.cold)
-    var rr = raceCanvas.getBoundingClientRect(), rW = Math.max(1, Math.floor(rr.width)), rH = 520;
+    var rH = Math.max(560, 72 + secs.length * 20);
+    raceCanvas.style.height = rH + "px";
+    var rr = raceCanvas.getBoundingClientRect(), rW = Math.max(1, Math.floor(rr.width));
     raceCanvas.width = rW * dpr; raceCanvas.height = rH * dpr;
     var ctx = raceCanvas.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, rW, rH);
 
@@ -2734,7 +2760,7 @@ function renderIntraday(p) {
     vis.forEach(function (s) {
       var cv = mCurve(s); if (!cv.length) return;
       var val = mVal(s), isPin = !!pinSet[s.code], isLead = s.code === leadCode, isSel = s.code === st.sel;
-      var col = isSel ? C.cold : isLead ? C.up : isPin ? C.warm : (val >= 0 ? "rgba(200,64,47,0.38)" : "rgba(31,138,91,0.38)");
+      var col = isSel ? C.cold : isLead ? C.up : isPin ? C.warm : (val >= 0 ? C.up : C.down);
       var lw = (isSel || isLead) ? 2.6 : isPin ? 2.0 : 1.25;
       ctx.beginPath();
       cv.forEach(function (v, i) { if (i === 0) ctx.moveTo(xOf(i), yOf(v)); else ctx.lineTo(xOf(i), yOf(v)); });
@@ -2744,17 +2770,17 @@ function renderIntraday(p) {
       ctx.beginPath(); ctx.arc(ex, ey, (isSel || isLead || isPin) ? 3.2 : 2, 0, Math.PI * 2); ctx.fillStyle = endPts[s.code].col; ctx.fill();
     });
 
-    var labelX = padL + plotW + 12, gap = Math.min(20, Math.max(14, plotH / Math.max(1, vis.length)));
-    var startY = padT + Math.max(6, (plotH - (vis.length - 1) * gap) / 2);
+    var labelX = padL + plotW + 12, gap = vis.length > 1 ? Math.max(16, (plotH - 8) / (vis.length - 1)) : plotH;
+    var startY = padT + 4;
     st.boxes = [];
     vis.forEach(function (s, idx) {
       var ep = endPts[s.code]; if (!ep) return;
       var ly = startY + idx * gap;
-      ctx.save(); ctx.strokeStyle = ep.col; ctx.globalAlpha = ep.bold ? 0.72 : 0.32; ctx.setLineDash([2.5, 3]);
+      ctx.save(); ctx.strokeStyle = ep.col; ctx.globalAlpha = 0.9; ctx.setLineDash([2.5, 3]);
       ctx.beginPath(); ctx.moveTo(ep.x + 3, ep.y); ctx.lineTo(labelX - 5, ly); ctx.stroke(); ctx.restore();
       ctx.fillStyle = ep.col; ctx.fillRect(labelX - 3, ly - 5, 2, 11);
       ctx.font = (ep.bold ? "650 " : "400 ") + "12px " + FONT; ctx.textAlign = "left";
-      ctx.globalAlpha = ep.bold ? 1 : 0.85;
+      ctx.globalAlpha = 1;
       ctx.fillText((ep.star ? "★ " : "") + s.name + " " + fmtSigned(ep.val, st.metric === "pct" ? 2 : 1) + mUnit(), labelX + 2, ly + 4, padR - 18);
       ctx.globalAlpha = 1;
       st.boxes.push({ code: s.code, x: labelX - 5, y: ly - 9, w: padR - 8, h: 18 });
@@ -2762,7 +2788,7 @@ function renderIntraday(p) {
 
     // 3. Selected Sector Leaders
     var selSec = byCode[st.sel] || secs[0];
-    stTitle.textContent = selSec.name + "（" + selSec.code + "）· 大市值个股分时与日 K";
+    stTitle.textContent = selSec.name + "（" + selSec.code + "）· 权重大市值股";
     stSub.textContent = "ETF 现价 " + fmtNum(selSec.price, 3) + "（" + fmtSigned(selSec.pct, 2) + "%） · 净流入 " + fmtSigned(selSec.net_inflow_yi, 2) + " 亿 · 成交 " + fmtNum(selSec.amount_yi, 2) + " 亿";
 
     var sr = stCanvas.getBoundingClientRect(), sW = Math.max(320, sr.width || 480), sH = 210;
@@ -2788,7 +2814,7 @@ function renderIntraday(p) {
     stTbody.textContent = "";
     [{ name: selSec.name + "(ETF)", code: selSec.code, price: selSec.price, pct: selSec.pct, open: selSec.open, high: selSec.high, low: selSec.low, amount_yi: selSec.amount_yi, mv_yi: null }].concat(lds).forEach(function (r, idx) {
       var tr = el("tr"), dc = dirClass(r.pct), tdName = el("td");
-      add(tdName, el("b", null, r.name), el("span", "id-code", String(r.code || "").split(".")[0]));
+      add(tdName, el("b", null, r.name), el("span", "id-code", String(r.code || "").split(".")[0] + (isNum(r.weight_pct) ? " · 权重 " + fmtNum(r.weight_pct, 1) + "%" : "")));
       add(tr,
         tdName,
         el("td", dc, fmtNum(r.price, idx === 0 ? 3 : 2)),

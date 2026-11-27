@@ -7,9 +7,9 @@
      * `pct`：相对昨收的每分钟涨跌幅 % 曲线
      * `flow`：按分钟方向脉冲与东财/同花顺主力净额校准的日内累计资金流（亿元）曲线
      * `amt`：日内累计成交额（亿元）曲线
-2. 每个行业 ETF 穿透其当日领涨强势股（Top 4）：
-   - 优先从东方财富对应行业板块（`b:BKxxxx`）实时涨幅榜拉取叠加重仓龙头池，降级时从重仓龙头池（`stocks`）按实时涨幅排序
-   - 为每只强势股拉取实时日 K（开高低收、涨跌幅、成交额、主力净额）与当日 1 分钟分时涨跌幅曲线
+2. 每个行业 ETF 穿透其权重大市值股（Top 4）：
+   - 先取基金披露的前十大重仓，再按总市值挑出其中的大市值权重股；披露缺失时退回配置候选池，只按总市值排序
+   - 为每只权重股拉取实时日 K（开高低收、涨跌幅、成交额、主力净额）与当日 1 分钟分时涨跌幅曲线
 3. 顶部全市场盘中概览 + 右上角「预测量能 vs 昨日」分时曲线：
    - 沪深两市（上证 `000001.SH` + 深成指 `399001.SZ`）今日与昨日每分钟累计成交额对比
    - 按历史同刻累计成交占比外推今日全天预测量能（万亿元）及每分钟同比昨日量能变化 %
@@ -20,6 +20,7 @@ import concurrent.futures
 import json
 import logging
 import math
+import re
 import time
 import urllib.request
 from datetime import datetime
@@ -538,6 +539,65 @@ def fetch_market_volume_curve(http_get=_http_get) -> dict:
     }
 
 
+# ------------------------------------------------------------------ ETF 权重大市值股
+
+_HOLD_ROW = re.compile(r"<tr[^>]*>(.*?)</tr>", re.I | re.S)
+_HOLD_CELL = re.compile(r"<t[dh][^>]*>(.*?)</t[dh]>", re.I | re.S)
+_HOLD_TAG = re.compile(r"<[^>]+>")
+_HOLD_CODE = re.compile(r"^\d{6}$")
+_HOLD_WEIGHT = re.compile(r"^(\d+(?:\.\d+)?)%$")
+
+
+def _stock_exchange(num: str) -> str:
+    if num.startswith(("5", "6", "9")):
+        return "SH"
+    if num.startswith(("4", "8")):
+        return "BJ"
+    return "SZ"
+
+
+def parse_etf_holdings(text: str, limit: int = 10) -> list[dict]:
+    """从东财基金持仓表抽出股票代码与占净值比例，按权重从高到低。"""
+    holdings = []
+    seen = set()
+    for row in _HOLD_ROW.findall(text or ""):
+        cells = [_HOLD_TAG.sub("", cell).replace("&nbsp;", " ").strip() for cell in _HOLD_CELL.findall(row)]
+        code = next((cell for cell in cells if _HOLD_CODE.fullmatch(cell)), None)
+        weight = next((_HOLD_WEIGHT.fullmatch(cell) for cell in cells if _HOLD_WEIGHT.fullmatch(cell)), None)
+        if not code or not weight or code in seen:
+            continue
+        seen.add(code)
+        holdings.append({"code": f"{code}.{_stock_exchange(code)}", "weight": float(weight.group(1))})
+    holdings.sort(key=lambda item: item["weight"], reverse=True)
+    return holdings[:limit]
+
+
+def fetch_etf_holdings(code: str, http_get=_http_get, limit: int = 10) -> list[dict]:
+    """最新一期基金前十大重仓。失败或没有股票持仓时返回空列表，调用方退回配置候选池。"""
+    num = str(code).split(".")[0]
+    url = ("https://fundf10.eastmoney.com/FundArchivesDatas.aspx"
+           f"?type=jjcc&code={num}&topline={limit}&year=&month=")
+    try:
+        text = http_get(url, referer="https://fundf10.eastmoney.com/")
+    except Exception:  # noqa: BLE001
+        return []
+    return parse_etf_holdings(text, limit=limit)
+
+
+def select_large_cap_weights(holdings: list[dict], fallback: list[str], quotes: dict,
+                             limit: int = 4) -> tuple[list[str], dict[str, float]]:
+    """在 ETF 披露的权重股里按总市值取前 limit 只。没有披露时，配置候选池同样只按总市值排。"""
+    weights = {item["code"]: item["weight"] for item in holdings if item.get("code")}
+    pool = list(weights) if weights else list(fallback)
+
+    def sort_key(code: str):
+        mv = (quotes.get(code) or {}).get("mv_yi")
+        return (mv is not None, mv or 0.0, weights.get(code) or 0.0)
+
+    pool.sort(key=sort_key, reverse=True)
+    return pool[:limit], weights
+
+
 # ------------------------------------------------------------------ 采集完整盘中看板 Payload
 
 def collect_intraday_payload(http_get=_http_get, now: datetime | None = None, top_stocks_per_etf: int = 4) -> dict:
@@ -546,33 +606,47 @@ def collect_intraday_payload(http_get=_http_get, now: datetime | None = None, to
     pool = list(config.INTRADAY_ETFS)
     etf_codes = [x["code"] for x in pool]
     bk_codes = sorted({x["bk"] for x in pool if x.get("bk")})
-    stock_codes = sorted({s for x in pool for s in (x.get("stocks") or [])})
     index_codes = ["000001.SH", "399001.SZ", "399006.SZ", "000300.SH"]
 
-    # 1. 批量拉取所有 ETF、关联行业 BK、龙头候选股及大盘指数的实时日 K 与主力净流入
+    holdings_by_etf: dict[str, list[dict]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        hold_futs = {ex.submit(fetch_etf_holdings, item["code"], http_get): item["code"] for item in pool}
+        for fut, code in hold_futs.items():
+            try:
+                holdings_by_etf[code] = fut.result(timeout=8) or []
+            except Exception:  # noqa: BLE001
+                holdings_by_etf[code] = []
+
+    stock_codes = sorted({
+        row["code"]
+        for item in pool
+        for row in (holdings_by_etf.get(item["code"]) or [{"code": sc} for sc in (item.get("stocks") or [])])
+    })
+
+    # 1. 批量拉取 ETF、行业 BK、权重股及大盘指数的实时日 K 与主力净流入
     all_quote_codes = index_codes + etf_codes + bk_codes + stock_codes
     quotes = fetch_merged_quotes(all_quote_codes, http_get=http_get)
 
-    # 2. 为每个行业 ETF 选出大市值权重强势股（兼顾 ETF 权重市值与当日领涨强度）
+    # 2. 每个 ETF 只在披露的权重股里按总市值取前几只；没有披露时退回配置候选池
     selected_stocks_by_etf: dict[str, list[str]] = {}
+    weights_by_etf: dict[str, dict[str, float]] = {}
     unique_top_stocks: list[str] = []
     seen_top = set()
     for item in pool:
-        cand = list(item.get("stocks") or [])
-        # 仅在配置候选池中选股；总市值不是 ETF 持仓权重，缺失时不伪造市值。
-        def _weight_score(sc):
-            q = quotes.get(sc, {})
-            pct = q.get("pct")
-            return (q.get("mv_yi") or 0, pct if pct is not None else -math.inf)
-        cand.sort(key=_weight_score, reverse=True)
-        top_c = cand[:top_stocks_per_etf]
-        selected_stocks_by_etf[item["code"]] = top_c
-        for sc in top_c:
+        chosen, weights = select_large_cap_weights(
+            holdings_by_etf.get(item["code"]) or [],
+            list(item.get("stocks") or []),
+            quotes,
+            limit=top_stocks_per_etf,
+        )
+        selected_stocks_by_etf[item["code"]] = chosen
+        weights_by_etf[item["code"]] = weights
+        for sc in chosen:
             if sc not in seen_top:
                 seen_top.add(sc)
                 unique_top_stocks.append(sc)
 
-    # 3. 并发拉取 24 只 ETF + 领涨强势股的 1 分钟分时数据 + 全市场量能分时
+    # 3. 并发拉取 24 只 ETF + 权重大市值股的 1 分钟分时数据 + 全市场量能分时
     intraday_targets = etf_codes + unique_top_stocks
     intraday_map: dict[str, dict] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=14) as ex:
@@ -633,8 +707,9 @@ def collect_intraday_payload(http_get=_http_get, now: datetime | None = None, to
             amt_val = curves["amt"][-1]
         flow_val = target_flow if target_flow is not None else (curves["flow"][-1] if curves["flow"] else 0.0)
 
-        # 组装该 ETF 的强势股列表（含日 K 四要素与分时走势）
+        # 组装该 ETF 的权重大市值股（含日 K 四要素与分时走势）
         leaders = []
+        etf_weights = weights_by_etf.get(code) or {}
         for sc in selected_stocks_by_etf.get(code, []):
             sq = quotes.get(sc) or {}
             s_intra = intraday_map.get(sc)
@@ -655,6 +730,7 @@ def collect_intraday_payload(http_get=_http_get, now: datetime | None = None, to
                 "amount_yi": sq.get("amount_yi") or (s_curves["amt"][-1] if s_curves["amt"] else 0.0),
                 "net_inflow_yi": sq.get("net_inflow_yi") if sq.get("net_inflow_yi") is not None else (s_curves["flow"][-1] if s_curves["flow"] else 0.0),
                 "mv_yi": sq.get("mv_yi"),
+                "weight_pct": etf_weights.get(sc),
                 "pct_curve": s_curves["pct"],
                 "flow_curve": s_curves["flow"],
                 "trade_date": s_intra.get("date") if s_intra else None,
@@ -766,6 +842,7 @@ def build_demo_intraday_payload(trade_date: str = "20261106") -> dict:
                 "amount_yi": round(float(amt_curve[-1] * (0.6 - s_i * 0.1)), 2),
                 "net_inflow_yi": round(float(flow_curve[-1] * (0.35 - s_i * 0.06)), 2),
                 "mv_yi": round(3800.0 - s_i * 650.0, 1),
+                "weight_pct": round(12.0 - s_i * 2.0, 1),
                 "pct_curve": s_pct_curve,
                 "flow_curve": [round(float(x * (0.35 - s_i * 0.06)), 2) for x in flow_curve],
             })

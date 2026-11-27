@@ -12,20 +12,27 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import threading
 import time
 import urllib.parse
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import intraday_tracker as it
+from intraday_archive import archive_intraday, publish_intraday
 from render import to_json
 
 ROOT = Path(__file__).resolve().parent
 TEMPLATE_PATH = ROOT / "intraday_template.html"
+HISTORY_DIR = ROOT / "history" / "intraday"
 PLACEHOLDER = "/*__INTRADAY_DATA__*/null"
+SH = ZoneInfo("Asia/Shanghai")
+_HISTORY_FILE = re.compile(r"^(?:manifest|\d{4}-\d{2}-\d{2})\.json$")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +63,8 @@ class IntradayApp:
                 payload = it.collect_intraday_payload()
             self._cached_payload = payload
             self._cached_at = now
+            if not self.demo:
+                store_closed_chart(payload)
             return payload
 
     def render_html(self, refresh: bool = False) -> str:
@@ -64,6 +73,35 @@ class IntradayApp:
         if PLACEHOLDER in tpl:
             return tpl.replace(PLACEHOLDER, to_json(payload), 1)
         return tpl
+
+
+def read_history(url_path: str, directory: Path = HISTORY_DIR) -> bytes | None:
+    """只读 history/intraday 下的清单和 YYYY-MM-DD.json，拒绝其它路径。"""
+    name = urllib.parse.unquote(url_path.rstrip("/").rsplit("/", 1)[-1])
+    if not _HISTORY_FILE.fullmatch(name):
+        return None
+    path = directory / name
+    if not path.is_file():
+        return None
+    return path.read_bytes()
+
+
+def store_closed_chart(payload: dict, directory: Path = ROOT / "history") -> None:
+    """收盘后的完整分时写入 history/intraday，并刷新可搜寻的日期清单。"""
+    meta = payload.get("meta") or {}
+    day = meta.get("trade_date")
+    if not day or meta.get("demo"):
+        return
+    try:
+        archive_intraday(
+            {"meta": {"trade_date": day, "demo": False}, "intraday": payload},
+            directory,
+            requested_date=str(day),
+            now=datetime.now(SH),
+        )
+        publish_intraday(directory, directory.parent)
+    except Exception:  # noqa: BLE001
+        log.warning("收盘分时存档失败", exc_info=True)
 
 
 def make_handler(app: IntradayApp):
@@ -104,6 +142,17 @@ def make_handler(app: IntradayApp):
                 elif path == "/favicon.ico":
                     self.send_response(HTTPStatus.NO_CONTENT)
                     self.end_headers()
+                elif path.startswith("/history/intraday/"):
+                    body = read_history(path)
+                    if body is None:
+                        self._send_json({"error": f"Not found: {path}"}, status=HTTPStatus.NOT_FOUND)
+                    else:
+                        self.send_response(HTTPStatus.OK)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.send_header("Cache-Control", "no-store")
+                        self.end_headers()
+                        self.wfile.write(body)
                 else:
                     self._send_json({"error": f"Not found: {path}"}, status=HTTPStatus.NOT_FOUND)
             except Exception as e:  # noqa: BLE001

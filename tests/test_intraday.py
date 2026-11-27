@@ -78,6 +78,38 @@ def test_parse_em_ths_tx_intraday():
     assert tx_res["bars"][1] == ("09:31", 1.02, 20400000.0)
 
 
+def test_holdings_prefer_large_cap_weights_inside_etf():
+    html = (
+        '<table><tr><td>序号</td><td>股票代码</td></tr>'
+        '<tr><td>1</td><td>688981</td><td>中芯国际</td><td>9.20%</td></tr>'
+        '<tr><td>2</td><td>002371</td><td>北方华创</td><td>3.10%</td></tr>'
+        '<tr><td>3</td><td>603501</td><td>韦尔股份</td><td>1.20%</td></tr></table>'
+    )
+    held = it.parse_etf_holdings(html)
+    assert [row["code"] for row in held] == ["688981.SH", "002371.SZ", "603501.SH"]
+    quotes = {
+        "688981.SH": {"mv_yi": 800},
+        "002371.SZ": {"mv_yi": 2200},
+        "603501.SH": {"mv_yi": 400, "pct": 9},
+        "300308.SZ": {"mv_yi": 5000, "pct": 10},
+    }
+    chosen, weights = it.select_large_cap_weights(held, ["300308.SZ"], quotes, limit=2)
+    assert chosen == ["002371.SZ", "688981.SH"]
+    assert weights["688981.SH"] == pytest.approx(9.2)
+    fallback, empty = it.select_large_cap_weights([], ["300308.SZ", "002371.SZ"], quotes, limit=1)
+    assert fallback == ["300308.SZ"] and empty == {}
+
+
+def test_history_reader_rejects_other_files(tmp_path):
+    (tmp_path / "2026-11-27.json").write_text('{"sectors":[]}', encoding="utf-8")
+    (tmp_path / "manifest.json").write_text('{"dates":["2026-11-27"]}', encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("nope", encoding="utf-8")
+    assert isrv.read_history("/history/intraday/2026-11-27.json", tmp_path).startswith(b"{")
+    assert isrv.read_history("/history/intraday/manifest.json", tmp_path).startswith(b"{")
+    assert isrv.read_history("/history/intraday/../secrets.json", tmp_path) is None
+    assert isrv.read_history("/history/intraday/notes.txt", tmp_path) is None
+
+
 def test_build_demo_intraday_payload_and_export(tmp_path):
     p = it.build_demo_intraday_payload("20261106")
     assert p["meta"]["trade_date"] == "20261106"
