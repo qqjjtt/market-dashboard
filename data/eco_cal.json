@@ -2327,7 +2327,7 @@
 "major": false,
 "value": null,
 "pre": "49.3",
-"fore": null
+"fore": "49.5"
 },
 {
 "date": "20261130",
@@ -2363,7 +2363,7 @@
 "major": true,
 "value": null,
 "pre": "165K",
-"fore": null
+"fore": "90K"
 },
 {
 "date": "20261204",
@@ -2375,7 +2375,7 @@
 "major": false,
 "value": null,
 "pre": "4.1%",
-"fore": null
+"fore": "4.1%"
 },
 {
 "date": "20261209",
@@ -2543,6 +2543,42 @@
 "major": true,
 "value": null,
 "pre": "6.5%",
+"fore": null
+},
+{
+"date": "20270128",
+"time": "02:00",
+"region": "us",
+"item": "us_fomc_rate",
+"label": "FOMC 利率决议",
+"period": null,
+"major": true,
+"value": null,
+"pre": null,
+"fore": null
+},
+{
+"date": "20270128",
+"time": "03:00",
+"region": "us",
+"item": "us_fomc_stmt",
+"label": "FOMC 货币政策声明",
+"period": null,
+"major": false,
+"value": null,
+"pre": null,
+"fore": null
+},
+{
+"date": "20270128",
+"time": "03:30",
+"region": "us",
+"item": "us_fomc_presser",
+"label": "FOMC 新闻发布会",
+"period": null,
+"major": false,
+"value": null,
+"pre": null,
 "fore": null
 }
 ]
