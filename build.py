@@ -1508,49 +1508,6 @@ def _write_db(args, payload: dict, extras: dict) -> None:
         log.warning("历史库 CSV 发布失败（%s: %s）", type(e).__name__, _short(e))
 
 
-# ------------------------------------------------------------------ 涨停地图
-
-LIMIT_LOOKBACK = 15
-
-
-def _limit_map(src, trade_date: str, out_dir: str, demo: bool) -> dict:
-    """生成独立快照 limit.html（主看板「涨停地图」标签内嵌它），返回主看板用的摘要。
-
-    快照体积约数 MB，不并入 index.html；任何失败只让该标签显示无数据，不影响整页。
-    """
-    if demo:
-        return {"available": False, "reason": "demo"}
-    pro = getattr(src, "pro", None)
-    if pro is None:
-        return {"available": False, "reason": "no_source"}
-    try:
-        import limit_server
-        import limit_tracker
-
-        app = limit_server.ServerApp(limit_tracker.LimitDataStore(pro=pro), trade_date, LIMIT_LOOKBACK)
-        data = app.get_dashboard(trade_date, LIMIT_LOOKBACK)
-        overview, meta = data.get("overview") or {}, data.get("meta") or {}
-        if not overview.get("available"):
-            log.warning("涨停地图：%s 缺少涨跌停明细，不生成快照", _md(trade_date))
-            return {"available": False, "reason": "missing", "trade_date": meta.get("trade_date")}
-        tmp = os.path.join(out_dir, "limit.html.tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            fh.write(app.render_html(snapshot=True))
-        os.replace(tmp, os.path.join(out_dir, "limit.html"))
-    except Exception as e:  # noqa: BLE001
-        log.warning("涨停地图生成失败（%s: %s）", type(e).__name__, _short(e))
-        return {"available": False, "reason": "failed"}
-    promo = data.get("promotion") or {}
-    return {
-        "available": True, "trade_date": meta.get("trade_date"), "href": "limit.html",
-        "up_count": overview.get("up_count"), "max_board": overview.get("max_board"),
-        "leaders": [x.get("name") for x in overview.get("top_leaders") or []][:3],
-        "seal_rate": overview.get("seal_rate"), "promo_rate": promo.get("overall_promo_rate"),
-        "zha_count": overview.get("zha_count"), "down_count": overview.get("down_count"),
-        "concepts": bool((meta.get("coverage") or {}).get("kpl_up")),
-    }
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成 A 股盘后看板单文件 HTML")
     ap.add_argument("--date", help="目标日期 YYYYMMDD，默认北京时间当日")
@@ -1584,9 +1541,6 @@ def main(argv: list[str] | None = None) -> int:
     payload["meta"]["code_version"] = (os.environ.get("GITHUB_SHA") or "")[:7] or None
     out_dir = os.path.dirname(os.path.abspath(args.out))
     os.makedirs(out_dir, exist_ok=True)
-    payload["limit_map"] = _limit_map(src, payload["meta"]["trade_date"], out_dir, args.demo)
-    if payload["limit_map"].get("reason") == "failed":
-        payload["meta"]["warnings"].append("涨停地图生成失败，该标签暂无数据")
     render(str(TEMPLATE), payload, args.out)
     intraday_tpl = Path(__file__).resolve().parent / "intraday_template.html"
     if intraday_tpl.is_file() and payload.get("intraday"):

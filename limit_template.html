@@ -34,8 +34,6 @@
   .bar { max-width: 1240px; margin: 0 auto; padding: 12px 20px 0; }
   .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 12px 18px; flex-wrap: wrap; }
   .brand h1 { font-size: 18px; margin: 0; font-weight: 650; }
-  /* 内嵌在主看板「涨停地图」标签里：标题与（快照里不可用的）日期控件由外层负责。 */
-  body.embed .brand { display: none; }
   .meta, .note, small { color: var(--muted); }
   .meta { font-size: 13px; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -208,7 +206,6 @@
 'use strict';
 const $=id=>document.getElementById(id), state={data:null,tab:'ladder',pool:'up',tier:'all',level:'L2',metric:'count',rotation:'sw_l2_rotation',positionMetric:'count',query:'',sector:'',concept:'',order:'up_count',promo:0,rankAll:false,fold:{'首板':true,'2 连板':true}};
 const staticMode=!/^https?:$/.test(location.protocol)||/*__LIMIT_SNAPSHOT__*/false;
-if(new URLSearchParams(location.search).has('embed'))document.body.classList.add('embed');
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=(v,d=0)=>Number.isFinite(v)?v.toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
 const signed=v=>Number.isFinite(v)?`<span class="num ${v>0?'up':v<0?'down':''}">${v>0?'+':''}${fmt(v,2)}%</span>`:'—';

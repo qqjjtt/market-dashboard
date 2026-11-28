@@ -474,11 +474,6 @@
     .id-code, .code-sub { display: block; margin-left: 0; font-size: 10px; }
     .kbar-svg { max-width: 100%; }
   }
-  .lm-head { display:flex; align-items:baseline; gap:6px 14px; flex-wrap:wrap; margin:20px 0 10px; }
-  .lm-head h2 { margin:0; font-size:24px; }
-  .lm-open { margin-left:auto; font-size:13px; color:var(--ink); }
-  .lm-wait { margin:0 0 6px; }
-  .lm-frame { display:block; width:100%; height:max(560px, calc(100vh - 130px)); border:1px solid var(--hair); border-radius:var(--radius); background:#fff; }
   /* 资金跷跷板：暖色、冷色只标识两侧，不表示涨跌。 */
   .sw-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:20px 0 10px; }
   .sw-head h2 { margin:0; font-size:24px; }
@@ -563,7 +558,6 @@
   <section class="page" id="p-liquidity"></section>
   <section class="page" id="p-sector"></section>
   <section class="page" id="p-intraday"></section>
-  <section class="page" id="p-limit"></section>
   <section class="page" id="p-team"></section>
   <section class="page" id="p-seesaw" aria-labelledby="sw-title"></section>
   <section class="page" id="p-retail"></section>
@@ -2973,26 +2967,6 @@ function renderIntraday(p) {
   drawAll();
 }
 
-/* ================= 涨停地图（内嵌 limit.html 快照） ================= */
-function renderLimitMap(root) {
-  var L = DATA.limit_map || {};
-  var head = add(el("div", "lm-head"), el("h2", null, "涨停地图"));
-  root.appendChild(head);
-  if (!L.available) {
-    var why = { demo: "演示模式不生成涨停地图", missing: "该交易日的涨跌停明细尚未发布", failed: "涨停地图本次生成失败，下次构建会重试" }[L.reason] || "暂无涨停地图";
-    add(root, add(el("div", "card"), el("strong", null, why),
-      el("p", "note", "涨停地图来自 Tushare 涨跌停列表、开盘啦题材与申万行业，随每次盘后构建一起生成。")));
-    return;
-  }
-  var open = el("a", "lm-open", "新窗口打开 ↗"); open.href = L.href; open.target = "_blank"; open.rel = "noopener";
-  add(head, el("span", "note", "交易日 " + (fmtDay(L.trade_date) || DASH) + (L.concepts ? "" : " · 题材数据暂缺")), open);
-  var frame = el("iframe", "lm-frame");
-  var wait = el("p", "note lm-wait", "正在加载涨停地图快照…");
-  frame.title = "涨停地图"; frame.src = L.href + "?embed=1";
-  frame.addEventListener("load", function () { if (wait.parentNode) wait.parentNode.removeChild(wait); });
-  add(root, wait, frame);
-}
-
 /* ================= 资金跷跷板 ================= */
 function seesawDate(s) {
   return typeof s === "string" ? s.replace(/^([0-9]{4})([0-9]{2})([0-9]{2})$/, "$1-$2-$3") : DASH;
@@ -3297,7 +3271,6 @@ var PAGES = [
   { key: "liquidity", name: "流动性", render: renderLiquidity },
   { key: "sector", name: "板块流向", render: renderSector },
   { key: "intraday", name: "盘中强弱", render: renderIntraday },
-  { key: "limit", name: "涨停地图", render: renderLimitMap },
   { key: "team", name: "国家队", render: renderTeam },
   { key: "seesaw", name: "资金跷跷板", render: renderSeesaw },
   { key: "retail", name: "散户情绪", render: renderRetail },
