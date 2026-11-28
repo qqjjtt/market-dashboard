@@ -109,28 +109,38 @@ def make_handler(app: IntradayApp):
         def log_message(self, fmt, *args):
             log.info("%s - %s", self.address_string(), fmt % args)
 
-        def _send_json(self, data: dict, status: int = HTTPStatus.OK):
-            body = to_json(data).encode("utf-8")
+        def _send(self, body: bytes, kind: str, status: int = HTTPStatus.OK):
             self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Type", f"{kind}; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # 页面在自动刷新途中关闭或跳转，不算服务错误
+
+        def _send_json(self, data: dict, status: int = HTTPStatus.OK):
+            self._send(to_json(data).encode("utf-8"), "application/json", status)
 
         def _send_html(self, html: str, status: int = HTTPStatus.OK):
-            body = html.encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(html.encode("utf-8"), "text/html", status)
+
+        def _foreign_host(self) -> bool:
+            """绑定本机地址时只接受本机 Host，挡住 DNS 重绑定页面借浏览器调用接口。"""
+            host, port = self.server.server_address[:2]
+            if host not in ("127.0.0.1", "localhost", "::1"):
+                return False
+            return self.headers.get("Host") not in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
 
         def do_GET(self):  # noqa: N802
             parsed = urllib.parse.urlparse(self.path)
             path = parsed.path
             qs = urllib.parse.parse_qs(parsed.query)
+            if self._foreign_host():
+                self._send_json({"error": "本服务仅接受本机地址"}, status=HTTPStatus.FORBIDDEN)
+                return
 
             try:
                 if path in ("/", "/index.html", "/intraday.html"):
@@ -145,19 +155,14 @@ def make_handler(app: IntradayApp):
                 elif path.startswith("/history/intraday/"):
                     body = read_history(path)
                     if body is None:
-                        self._send_json({"error": f"Not found: {path}"}, status=HTTPStatus.NOT_FOUND)
+                        self._send_json({"error": "路径不存在"}, status=HTTPStatus.NOT_FOUND)
                     else:
-                        self.send_response(HTTPStatus.OK)
-                        self.send_header("Content-Type", "application/json; charset=utf-8")
-                        self.send_header("Content-Length", str(len(body)))
-                        self.send_header("Cache-Control", "no-store")
-                        self.end_headers()
-                        self.wfile.write(body)
+                        self._send(body, "application/json")
                 else:
-                    self._send_json({"error": f"Not found: {path}"}, status=HTTPStatus.NOT_FOUND)
-            except Exception as e:  # noqa: BLE001
-                log.exception("请求处理失败: %s", self.path)
-                self._send_json({"error": f"{type(e).__name__}: {e}"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                    self._send_json({"error": "路径不存在"}, status=HTTPStatus.NOT_FOUND)
+            except Exception:  # noqa: BLE001
+                log.exception("请求处理失败: %s", path)
+                self._send_json({"error": "数据暂不可用，请稍后重试"}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     return Handler
 

@@ -48,6 +48,38 @@ AMOUNT_MA = 20
 TAIL_START = "14:30"
 TAIL_CODE = "510300.SH"  # 东财与同花顺均不可用、退回 tushare stk_mins（限额 1 次/小时）时的单只代表 ETF
 
+# 资金跷跷板：A 股场内 ETF 仅用于估算净申赎，收益使用其跟踪的价格指数。
+# ETF 不重复入篮；同一子主题内指数去重后等权，篮子内各子主题等权。
+# 基金对应指数见发行人/上交所的基金合同及招募说明书；后缀为 Tushare index_daily 口径。
+def _seesaw_etf(code, name, index_code, index_name):
+    return dict(code=code, name=name, index_code=index_code, index_name=index_name)
+
+
+SEESAW_BASKETS = {
+    "cash": [
+        {"key": "free_cash_flow", "name": "自由现金流", "etfs": [
+            _seesaw_etf("563760.SH", "中银现金流ETF", "932365.CSI", "中证全指自由现金流指数"),
+        ]},
+        {"key": "dividend", "name": "红利（含低波）", "etfs": [
+            _seesaw_etf("510880.SH", "红利ETF", "000015.SH", "上证红利指数"),
+            _seesaw_etf("512890.SH", "红利低波ETF", "H30269.CSI", "中证红利低波动指数"),
+        ]},
+    ],
+    "tech": [
+        {"key": "semiconductor", "name": "半导体", "etfs": [
+            _seesaw_etf("512480.SH", "半导体ETF国联安", "H30184.CSI", "中证全指半导体产品与设备指数"),
+        ]},
+        {"key": "ai", "name": "人工智能", "etfs": [
+            _seesaw_etf("515070.SH", "人工智能ETF华夏", "930713.CSI", "中证人工智能主题指数"),
+        ]},
+        {"key": "robotics", "name": "机器人", "etfs": [
+            _seesaw_etf("562500.SH", "机器人ETF华夏", "H30590.CSI", "中证机器人指数"),
+        ]},
+    ],
+}
+SEESAW_HISTORY_MONTHS = 6
+SEESAW_THRESHOLDS = {"return_pct": 0.5, "flow_pct": 0.2}  # 科技−现金差的中性区阈值（百分点）
+
 
 def _s(name, icon, sw, basic, dynamic=False):
     return {"name": name, "icon": icon, "sw": sw, "basic": basic, "dynamic": dynamic}

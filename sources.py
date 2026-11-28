@@ -382,6 +382,10 @@ class TushareSource:
             df["amount"] = df["amount"] / 1e5
         return df
 
+    def etf_adj(self, code, start, end):
+        """ETF 复权因子（fund_adj）；拆分时成倍跳变，分红时小幅上调。"""
+        return self._fetch("fund_adj", ["trade_date", "adj_factor"], ts_code=code, start_date=start, end_date=end)
+
     def etf_names(self, codes):
         df = self.call("fund_basic", market="E")
         if df.empty or "ts_code" not in df.columns or "name" not in df.columns:

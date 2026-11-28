@@ -654,7 +654,7 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
     box.innerHTML = html.join("");
 
     var mLine = document.getElementById("meta-line");
-    mLine.textContent = "交易日 " + (m.trade_date || "") + " · 已采到 " + (m.sampled_at || "—") +
+    mLine.textContent = "交易日 " + String(m.trade_date || "").replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3") + " · 已采到 " + (m.sampled_at || "—") +
       "（" + (m.points_count || 0) + "/" + (m.total_grid || 241) + " 分钟点） · 源 " + (m.source || "东财/同花顺");
 
     var byPct = secs.slice().sort(function (a, b) { return (b.pct || 0) - (a.pct || 0); });
@@ -1147,6 +1147,9 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
   async function refreshFromBrowserDirect() {
     var D = state.data;
     if (!D || !Array.isArray(D.sectors)) return false;
+    /* 浏览器直连只拿得到「今天」的报价，不能叠加到其他交易日的快照上。 */
+    var today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10).replace(/-/g, "");
+    if (String((D.meta || {}).trade_date || "").replace(/-/g, "") !== today) return false;
     var codes = [];
     D.sectors.forEach(function (s) {
       codes.push(s.code);
@@ -1316,9 +1319,22 @@ const INITIAL_DATA = /*__INTRADAY_DATA__*/null;
     renderSelectedSectorDetail();
   });
 
+  /* 只在交易时段（北京时间工作日 09:15–11:31、12:59–15:01）自动刷新；收盘后、周末、页面隐藏时不请求上游。 */
+  function inSession() {
+    var bj = new Date(Date.now() + 8 * 3600e3), wd = bj.getUTCDay(), hm = bj.getUTCHours() * 100 + bj.getUTCMinutes();
+    return wd >= 1 && wd <= 5 && ((hm >= 915 && hm <= 1131) || (hm >= 1259 && hm <= 1501));
+  }
+  function idleStatus() {
+    if (replaying || !state.autoRefresh) return;
+    var el = document.getElementById("refresh-status");
+    if (!inSession()) el.textContent = "非交易时段 · 已暂停自动刷新（可点「立即刷新」）";
+    else if (/^非交易时段/.test(el.textContent)) el.textContent = "自动刷新间隔：60 秒";
+  }
   setInterval(function () {
-    if (state.autoRefresh) refreshData();
+    idleStatus();
+    if (state.autoRefresh && !replaying && !document.hidden && inSession()) refreshData();
   }, 60000);
+  idleStatus();
 
   if (state.data) {
     renderAll();

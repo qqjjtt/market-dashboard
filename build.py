@@ -26,6 +26,7 @@ import expiry
 import metrics_etf as me
 import metrics_gauge as mg
 import metrics_liquidity as ml
+import metrics_seesaw as mss
 import metrics_sentiment as ms
 import metrics_value as mvl
 import store
@@ -1323,6 +1324,46 @@ def _news(c: Ctx, date: str) -> dict:
     return out
 
 
+# ------------------------------------------------------------------ 资金跷跷板
+
+
+def _default_seesaw(c: Ctx) -> dict:
+    return mss.empty_payload(config.SEESAW_BASKETS, config.SEESAW_THRESHOLDS, asof=c.D, demo=c.demo)
+
+
+def _seesaw(c: Ctx) -> dict:
+    if c.demo:  # 演示源的随机价格、份额不进入这个面板。
+        return _default_seesaw(c)
+    history_start = (pd.Timestamp(c.D) - pd.DateOffset(months=config.SEESAW_HISTORY_MONTHS)).strftime("%Y%m%d")
+    calendar = [d for d in _cal_days(c) if d <= c.D]
+    if c.D not in calendar:
+        log.warning("资金跷跷板缺少截至当前交易日的开市日历，停止比较")
+        return _default_seesaw(c)
+    warmup = [d for d in calendar if d < history_start][-max(mss.WINDOWS):]
+    calendar = warmup + [d for d in calendar if d >= history_start]
+    start = calendar[0]
+    members = [e for themes in config.SEESAW_BASKETS.values() for theme in themes for e in theme["etfs"]]
+
+    def series(df, column):
+        if not isinstance(df, pd.DataFrame) or not {"trade_date", column} <= set(df.columns):
+            return None
+        # 保留重复日期，交由指标层标作缺口，而不是任取一个值。
+        return pd.Series(df[column].to_numpy(), index=_idx_strings(df["trade_date"]))
+
+    index = {code: series(_fetch(f"资金跷跷板 {code} 指数收盘", c.src.index_daily, code, start, c.D), "close")
+             for code in dict.fromkeys(e["index_code"] for e in members)}
+    etfs = dict.fromkeys(e["code"] for e in members)
+    shares = {code: series(_fetch(f"资金跷跷板 {code} ETF 份额", c.src.etf_share, code, start, c.D), "share") for code in etfs}
+    daily = {code: _fetch(f"资金跷跷板 {code} ETF 日线", c.src.etf_daily, code, start, c.D) for code in etfs}
+    closes = {code: series(df, "close") for code, df in daily.items()}
+    amounts = {code: series(df, "amount") for code, df in daily.items()}
+    # 复权因子用于剔除拆分造成的份额跳变；取不到的 ETF 视同缺数据，避免把拆分记成申购。
+    factors = {code: series(_fetch(f"资金跷跷板 {code} 复权因子", c.src.etf_adj, code, start, c.D), "adj_factor")
+               for code in etfs}
+    return mss.calculate(calendar, history_start, config.SEESAW_BASKETS, config.SEESAW_THRESHOLDS,
+                         index, shares, closes, amounts, factors)
+
+
 # ------------------------------------------------------------------ 组装
 
 def collect(src, fred, date: str, round_start: str | None, demo: bool, now: datetime | None = None,
@@ -1376,6 +1417,7 @@ def _collect(src, fred, date, round_start, demo, now, eco_path=None, db_dir=None
     sent = _safe("散户情绪", lambda: _sentiment(c), _default_sentiment)
     valuation = _safe("估值·筹码", lambda: _valuation(c), _default_valuation)
     etf = _safe("ETF", lambda: _etf(c, round_start), _default_etf)
+    seesaw = _safe("资金跷跷板", lambda: _seesaw(c), lambda: _default_seesaw(c))
     news = _safe("新闻", lambda: _news(c, date), lambda: {"domestic": [], "external": [], "status": "failed", "since": None})
     indices = _safe("指数", lambda: _indices(c), list)
     assets = _safe("大类资产", lambda: _assets(c), list)
@@ -1405,6 +1447,7 @@ def _collect(src, fred, date, round_start, demo, now, eco_path=None, db_dir=None
         "news": news,
         "sector_flow": sector,
         "etf_flow": etf["etf_flow"],
+        "seesaw": seesaw,
         "round": etf["round"],
         "monthly": etf["monthly"],
         "fingerprint": etf["fingerprint"],
@@ -1465,6 +1508,49 @@ def _write_db(args, payload: dict, extras: dict) -> None:
         log.warning("历史库 CSV 发布失败（%s: %s）", type(e).__name__, _short(e))
 
 
+# ------------------------------------------------------------------ 涨停地图
+
+LIMIT_LOOKBACK = 15
+
+
+def _limit_map(src, trade_date: str, out_dir: str, demo: bool) -> dict:
+    """生成独立快照 limit.html（主看板「涨停地图」标签内嵌它），返回主看板用的摘要。
+
+    快照体积约数 MB，不并入 index.html；任何失败只让该标签显示无数据，不影响整页。
+    """
+    if demo:
+        return {"available": False, "reason": "demo"}
+    pro = getattr(src, "pro", None)
+    if pro is None:
+        return {"available": False, "reason": "no_source"}
+    try:
+        import limit_server
+        import limit_tracker
+
+        app = limit_server.ServerApp(limit_tracker.LimitDataStore(pro=pro), trade_date, LIMIT_LOOKBACK)
+        data = app.get_dashboard(trade_date, LIMIT_LOOKBACK)
+        overview, meta = data.get("overview") or {}, data.get("meta") or {}
+        if not overview.get("available"):
+            log.warning("涨停地图：%s 缺少涨跌停明细，不生成快照", _md(trade_date))
+            return {"available": False, "reason": "missing", "trade_date": meta.get("trade_date")}
+        tmp = os.path.join(out_dir, "limit.html.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(app.render_html(snapshot=True))
+        os.replace(tmp, os.path.join(out_dir, "limit.html"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("涨停地图生成失败（%s: %s）", type(e).__name__, _short(e))
+        return {"available": False, "reason": "failed"}
+    promo = data.get("promotion") or {}
+    return {
+        "available": True, "trade_date": meta.get("trade_date"), "href": "limit.html",
+        "up_count": overview.get("up_count"), "max_board": overview.get("max_board"),
+        "leaders": [x.get("name") for x in overview.get("top_leaders") or []][:3],
+        "seal_rate": overview.get("seal_rate"), "promo_rate": promo.get("overall_promo_rate"),
+        "zha_count": overview.get("zha_count"), "down_count": overview.get("down_count"),
+        "concepts": bool((meta.get("coverage") or {}).get("kpl_up")),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="生成 A 股盘后看板单文件 HTML")
     ap.add_argument("--date", help="目标日期 YYYYMMDD，默认北京时间当日")
@@ -1498,6 +1584,9 @@ def main(argv: list[str] | None = None) -> int:
     payload["meta"]["code_version"] = (os.environ.get("GITHUB_SHA") or "")[:7] or None
     out_dir = os.path.dirname(os.path.abspath(args.out))
     os.makedirs(out_dir, exist_ok=True)
+    payload["limit_map"] = _limit_map(src, payload["meta"]["trade_date"], out_dir, args.demo)
+    if payload["limit_map"].get("reason") == "failed":
+        payload["meta"]["warnings"].append("涨停地图生成失败，该标签暂无数据")
     render(str(TEMPLATE), payload, args.out)
     intraday_tpl = Path(__file__).resolve().parent / "intraday_template.html"
     if intraday_tpl.is_file() and payload.get("intraday"):

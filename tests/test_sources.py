@@ -127,6 +127,7 @@ def test_units():
     pro = FakePro(
         fund_share=pd.DataFrame({"trade_date": ["20261105"], "fd_share": [12345.0]}),
         fund_daily=pd.DataFrame({"trade_date": ["20261105"], "close": [4.5], "amount": [123456.0]}),
+        fund_adj=pd.DataFrame({"ts_code": ["510300.SH"], "trade_date": ["20261105"], "adj_factor": [2.0]}),
         margin=pd.DataFrame({"trade_date": ["20261105", "20261105"], "exchange_id": ["SSE", "SZSE"],
                              "rzrqye": [1.25e9, 1.25e9]}),
         moneyflow_mkt_dc=pd.DataFrame({"trade_date": ["20261105"], "net_amount": [-5.0e10]}),
@@ -135,6 +136,8 @@ def test_units():
     src, _ = make(pro)
     assert src.etf_share("510300.SH", "20261101", "20261105").share.iloc[0] == pytest.approx(1.2345)
     assert src.etf_daily("510300.SH", "20261101", "20261105").amount.iloc[0] == pytest.approx(1.23456)
+    adj = src.etf_adj("510300.SH", "20261101", "20261105")
+    assert list(adj.columns) == ["trade_date", "adj_factor"] and adj.adj_factor.iloc[0] == 2.0
     m = src.margin("20261101", "20261105")
     assert len(m) == 1 and m.balance.iloc[0] == pytest.approx(25.0)
     assert src.market_flow("20261101", "20261105").net_amount.iloc[0] == pytest.approx(-500.0)

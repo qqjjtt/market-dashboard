@@ -232,6 +232,10 @@ class DemoSource:
         return pd.DataFrame({"trade_date": list(px.index), "close": px.to_numpy().round(4),
                              "amount": (amt_base * noise).round(4)})
 
+    def etf_adj(self, code, start, end):
+        days = list(self._slice(self._walk(("etfpx", code), 1.0, 0.009), start, end).index)
+        return pd.DataFrame({"trade_date": days, "adj_factor": 1.0})  # 演示源不模拟拆分与分红
+
     def etf_names(self, codes):
         return {c: _ETF_NAMES.get(c, f"演示ETF{c[:6]}") for c in codes}
 
