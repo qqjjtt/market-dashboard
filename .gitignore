@@ -3,5 +3,3 @@ __pycache__/
 .venv/
 *.log
 .superpowers/
-# 本地涨停复盘缓存；不随仓库或 Pages 发布。
-/data/limit_cache/
