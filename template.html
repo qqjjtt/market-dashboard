@@ -474,6 +474,8 @@
     .id-code, .code-sub { display: block; margin-left: 0; font-size: 10px; }
     .kbar-svg { max-width: 100%; }
   }
+  .sw-ov .sw-ov-lean { margin:6px 0 2px; }
+  .sw-ov .sub { color:var(--muted); font-size:13px; }
   /* 资金跷跷板：暖色、冷色只标识两侧，不表示涨跌。 */
   .sw-head { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin:20px 0 10px; }
   .sw-head h2 { margin:0; font-size:24px; }
@@ -1079,6 +1081,7 @@ function renderHome(p) {
   var g = el("div", "ov-grid");
   [ovLiquidity, ovSector, ovTeam, ovRetail].forEach(function (fn) { guard(g, function (box) { box.appendChild(fn()); }); });
   p.appendChild(g);
+  guard(p, renderSeesawOverview);
   guard(p, renderValueOverview);
   guard(p, renderReminders);
 }
@@ -2271,6 +2274,31 @@ function valueMarginLine(mg) {
   mg = mg || {};
   if (!mg.verdict) return "融资：" + DASH;
   return "融资：" + mg.verdict + "（杠杆率分位 " + pctText(mg.lev_pct, 0) + "，买入占比分位 " + pctText(mg.buy_pct, 0) + "）";
+}
+/* 总览里的资金跷跷板：固定看 5 日窗口，结论与跷跷板页同一套文字。 */
+function renderSeesawOverview(p) {
+  var S = DATA.seesaw || {}, w = (S.windows || {})["5"], t = S.thresholds || {};
+  var a = el("a", "card ov sw-ov");
+  a.href = "#seesaw";
+  a.style.marginTop = "16px";
+  var h = el("div", "ov-head");
+  add(h, el("h2", null, "资金跷跷板 · 5 日"), w ? el("span", "note tnum", seesawDate(w.start).slice(5) + " 至 " + seesawDate(w.end).slice(5)) : null);
+  a.appendChild(h);
+  if (!w) {
+    a.appendChild(el("div", "sub", S.status === "demo" ? "演示模式不生成跷跷板行情" : "待披露 · 暂无可比数据"));
+  } else {
+    var d = seesawDirection(w.flow_spread_pct, t.flow_pct);
+    var lean = d > 0 ? "资金偏向科技成长" : d < 0 ? "资金偏向现金回报" : "资金无明显偏向";
+    add(a, el("div", "verdict sw-ov-lean", lean), el("div", "sub", seesawCaption(w, t)));
+    var gaps = [["涨幅差", w.return_spread_pct, "pp"], ["净申购额差", w.tech.flow_amount - w.cash.flow_amount, " 亿"], ["净申购率差", w.flow_spread_pct, "pp"]];
+    var tl = el("div", "tiles");
+    gaps.forEach(function (g) { tl.appendChild(tile(g[0], isNum(g[1]) ? fmtSigned(g[1], 2) : DASH, isNum(g[1]) ? g[2] : "", "科技成长 − 现金回报", "flat")); });
+    a.appendChild(tl);
+  }
+  var f = el("div", "ov-foot");
+  add(f, el("span", null, "仅反映所选 ETF，不代表全市场资金流向"), el("span", "go", "查看详情 →"));
+  a.appendChild(f);
+  p.appendChild(a);
 }
 function renderValueOverview(p) {
   var V = valObj();
